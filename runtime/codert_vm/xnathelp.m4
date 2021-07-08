@@ -22,6 +22,9 @@ include(xhelpers.m4)
 
 	FILE_START
 
+	DECLARE_EXTERN(jitSaveVectorRegisters)
+	DECLARE_EXTERN(jitRestoreVectorRegisters)
+
 define({CALL_SLOW_PATH_ONLY_HELPER},{
 	pop uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
 	SWITCH_TO_C_STACK
@@ -1070,10 +1073,13 @@ START_PROC(jitReferenceArrayCopy)
 	mov PARM_REG(2),_rcx
 	mov PARM_REG(1),_rbp
 	call FASTCALL_SYMBOL(impl_jitReferenceArrayCopy,2)
-	dnl set ZF if succeed
-	test _rax,_rax
+	dnl Save return value to check later.
+	dnl We don't check it now because restoring the register clobbers flags.
+	mov dword ptr J9TR_VMThread_floatTemp3[_rbp],eax
 	RESTORE_C_VOLATILE_REGS
 	SWITCH_TO_JAVA_STACK
+	dnl Set ZF on success.
+	test dword ptr J9TR_VMThread_floatTemp3[_rbp], -1
 	push uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
 	ret
 END_PROC(jitReferenceArrayCopy)
