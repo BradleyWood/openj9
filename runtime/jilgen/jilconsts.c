@@ -1,5 +1,9 @@
 /*******************************************************************************
+<<<<<<< HEAD
  * Copyright IBM Corp. and others 1991
+=======
+ * Copyright (c) 1991, 2022 IBM Corp. and others
+>>>>>>> 88a9e0ea17 (Preserve ymm/zmm registers on x)
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -399,6 +403,7 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_machineBP", offsetof(J9CInterpreterStackFrame, machineBP)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_jitGPRs", offsetof(J9CInterpreterStackFrame, jitGPRs)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_jitFPRs", offsetof(J9CInterpreterStackFrame, jitFPRs)) |
+			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_maskRegisters", offsetof(J9CInterpreterStackFrame, maskRegisters)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_rax", offsetof(J9CInterpreterStackFrame, jitGPRs.jitGPRs.named.rax)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_rbx", offsetof(J9CInterpreterStackFrame, jitGPRs.jitGPRs.named.rbx)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_cframe_rcx", offsetof(J9CInterpreterStackFrame, jitGPRs.jitGPRs.named.rcx)) |
@@ -775,6 +780,7 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 			writeConstant(OMRPORTLIB, fd, "J9TR_ELSSize", sizeof(J9VMEntryLocalStorage)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME_DEBUG_MODE", J9_EXTENDED_RUNTIME_DEBUG_MODE) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS", J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS) |
+			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS", J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME2_COMPRESS_OBJECT_REFERENCES", J9_EXTENDED_RUNTIME2_COMPRESS_OBJECT_REFERENCES) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_INLINE_JNI_MAX_ARG_COUNT", J9_INLINE_JNI_MAX_ARG_COUNT) |
 
