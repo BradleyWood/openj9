@@ -71,6 +71,10 @@ samePCs(void *pc1, void *pc2)
 #define samePCs(pc1, pc2) (MASK_PC(pc1) == MASK_PC(pc2))
 #endif /* J9ZOS390 && !J9VM_ENV_DATA64 */
 
+#define JIT_HELPER(x) extern "C" void x()
+JIT_HELPER(jitSaveVectorRegisters);
+JIT_HELPER(jitRestoreVectorRegisters);
+
 /**
  * Fix the java and decompilation stacks for cases where exceptions can be
  * thrown from insde a JIT synthetic exception handler. There must be a
@@ -4125,6 +4129,12 @@ initPureCFunctionTable(J9JavaVM *vm)
 	jitConfig->old_slow_jitReportInstanceFieldWrite = (void*)old_slow_jitReportInstanceFieldWrite;
 	jitConfig->old_slow_jitReportStaticFieldRead = (void*)old_slow_jitReportStaticFieldRead;
 	jitConfig->old_slow_jitReportStaticFieldWrite = (void*)old_slow_jitReportStaticFieldWrite;
+
+   if (vm->extendedRuntimeFlags3 & J9_EXTENDED_RUNTIME3_USE_VECTOR_LENGTH_512)
+      {
+      jitConfig->saveVectorRegisters = (void*)jitSaveVectorRegisters;
+      jitConfig->restoreVectorRegisters = (void*) jitRestoreVectorRegisters;
+      }
 }
 
 } /* extern "C" */
