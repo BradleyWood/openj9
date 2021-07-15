@@ -9390,7 +9390,7 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
       auto mr = generateX86MemoryReference(tmp, index, shift, 0, cg);
       if (comp->target().cpu.supportsAVX())
          {
-         generateRegMemInstruction(TR::InstOpCode::PANDRegMem, node, hashXMM, mr, cg);
+         generateRegRegMemInstruction(TR::InstOpCode::VPANDRegRegMem, node, hashXMM, hashXMM, mr, cg);
          }
       else
          {
