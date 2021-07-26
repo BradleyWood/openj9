@@ -608,7 +608,7 @@ TR::Register *J9::X86::TreeEvaluator::fpConvertToLong(TR::Node *node, TR::Symbol
       // Attempt to convert a double in an XMM register to an integer using CVTTSD2SI.
       // If the conversion succeeds, put the integer in lowReg and sign-extend it to highReg.
       // If the conversion fails (the double is too large), call the helper.
-      generateRegRegInstruction(TR::InstOpCode::CVTTSD2SIReg4Reg, node, lowReg, doubleReg, cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VCVTTSD2SIReg4Reg, TR::InstOpCode::CVTTSD2SIReg4Reg, node, lowReg, doubleReg, cg);
       generateRegImmInstruction(TR::InstOpCode::CMP4RegImm4, node, lowReg, 0x80000000, cg);
 
       generateLabelInstruction(TR::InstOpCode::label, node, StartLabel, cg);
@@ -807,7 +807,10 @@ TR::Register *J9::X86::TreeEvaluator::f2iEvaluator(TR::Node *node, TR::CodeGener
       TR_OutlinedInstructionsGenerator og(exceptionLabel, node, cg);
       // at this point, target is set to -INF and there can only be THREE possible results: -INF, +INF, NaN
       // compare source with ZERO
-      generateRegMemInstruction(doubleSource ? TR::InstOpCode::UCOMISDRegMem : TR::InstOpCode::UCOMISSRegMem,
+      TR::InstOpCode::Mnemonic avxInsn = doubleSource ? TR::InstOpCode::VUCOMISDRegRegMem : TR::InstOpCode::VUCOMISSRegRegMem;
+      TR::InstOpCode::Mnemonic sseInsn = doubleSource ? TR::InstOpCode::UCOMISDRegMem : TR::InstOpCode::UCOMISSRegMem;
+
+      generateAVXorSSERegMemInstruction(avxInsn, sseInsn,
                                 node,
                                 sourceRegister,
                                 generateX86MemoryReference(doubleSource ? cg->findOrCreate8ByteConstant(node, 0) : cg->findOrCreate4ByteConstant(node, 0), cg),
@@ -7334,7 +7337,7 @@ static bool genZeroInitObject2(
          headerSize -= 4;
          }
       scratchReg = cg->allocateRegister(TR_FPR);
-      generateRegRegInstruction(TR::InstOpCode::PXORRegReg, node, scratchReg, scratchReg, cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VPXORRegRegReg, TR::InstOpCode::PXORRegReg, node, scratchReg, scratchReg, cg);
       int32_t offset = 0;
       while (objectSize >= 16)
          {
@@ -9388,16 +9391,11 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
       generateRegMemInstruction(TR::InstOpCode::LEARegMem(), node, tmp, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, isCompressed ? MASKCOMPRESSED : MASKDECOMPRESSED), cg), cg);
 
       auto mr = generateX86MemoryReference(tmp, index, shift, 0, cg);
-      if (comp->target().cpu.supportsAVX())
-         {
-         generateRegRegMemInstruction(TR::InstOpCode::VPANDRegRegMem, node, hashXMM, hashXMM, mr, cg);
-         }
-      else
-         {
-         generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, tmpXMM, mr, cg);
-         generateRegRegInstruction(TR::InstOpCode::PANDRegReg, node, hashXMM, tmpXMM, cg);
-         }
-      generateRegRegInstruction(isCompressed ? TR::InstOpCode::PMOVZXBDRegReg : TR::InstOpCode::PMOVZXWDRegReg, node, hashXMM, hashXMM, cg);
+      generateAVXorSSERegMemInstruction(TR::InstOpCode::VPANDRegRegMem, TR::InstOpCode::PANDRegMem, node, hashXMM, mr, cg);
+
+      TR::InstOpCode::Mnemonic avxInsn = isCompressed ? TR::InstOpCode::VPMOVZXBDRegReg : TR::InstOpCode::VPMOVZXWDRegReg;
+      TR::InstOpCode::Mnemonic sseInsn = isCompressed ? TR::InstOpCode::PMOVZXBDRegReg : TR::InstOpCode::PMOVZXWDRegReg;
+      generateRegRegInstruction(comp->target().cpu.supportsAVX() ? avxInsn : sseInsn, node, hashXMM, hashXMM, cg);
       }
 
       // Reduction Loop
@@ -9406,12 +9404,15 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
       generateLabelInstruction(TR::InstOpCode::label, node, begLabel, cg);
       generateRegRegInstruction(TR::InstOpCode::CMP4RegReg, node, index, length, cg);
       generateLabelInstruction(TR::InstOpCode::JGE4, node, endLabel, cg);
-      generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, multiplierXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, multiplier), cg), cg);
+      generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, multiplierXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, multiplier), cg), cg, true);
       generateLabelInstruction(TR::InstOpCode::label, node, loopLabel, cg);
-      generateRegRegInstruction(TR::InstOpCode::PMULLDRegReg, node, hashXMM, multiplierXMM, cg);
-      generateRegMemInstruction(isCompressed ? TR::InstOpCode::PMOVZXBDRegMem : TR::InstOpCode::PMOVZXWDRegMem, node, tmpXMM, generateX86MemoryReference(address, index, shift, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VPMULLDRegRegReg, TR::InstOpCode::PMULLDRegReg, node, hashXMM, multiplierXMM, cg);
+
+      TR::InstOpCode::Mnemonic avxInsn = isCompressed ? TR::InstOpCode::VPMOVZXBDRegMem : TR::InstOpCode::VPMOVZXWDRegMem;
+      TR::InstOpCode::Mnemonic sseInsn = isCompressed ? TR::InstOpCode::PMOVZXBDRegMem : TR::InstOpCode::PMOVZXWDRegMem;
+      generateRegMemInstruction(cg->comp()->target().cpu.supportsAVX() ? avxInsn : sseInsn, node, tmpXMM, generateX86MemoryReference(address, index, shift, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg);
       generateRegImmInstruction(TR::InstOpCode::ADD4RegImms, node, index, 4, cg);
-      generateRegRegInstruction(TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VPADDDRegRegReg, TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
       generateRegRegInstruction(TR::InstOpCode::CMP4RegReg, node, index, length, cg);
       generateLabelInstruction(TR::InstOpCode::JL4, node, loopLabel, cg);
       generateLabelInstruction(TR::InstOpCode::label, node, endLabel, deps, cg);
@@ -9420,14 +9421,14 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
       // Finalization
       {
       static uint32_t multiplier[] = { 31*31*31, 31*31, 31, 1 };
-      generateRegMemInstruction(TR::InstOpCode::PMULLDRegMem, node, hashXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, multiplier), cg), cg);
-      generateRegRegImmInstruction(TR::InstOpCode::PSHUFDRegRegImm1, node, tmpXMM, hashXMM, 0x0e, cg);
-      generateRegRegInstruction(TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
-      generateRegRegImmInstruction(TR::InstOpCode::PSHUFDRegRegImm1, node, tmpXMM, hashXMM, 0x01, cg);
-      generateRegRegInstruction(TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
+      generateAVXorSSERegMemInstruction(TR::InstOpCode::VPMULLDRegRegMem, TR::InstOpCode::PMULLDRegMem, node, hashXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, multiplier), cg), cg);
+      generateAVXorSSERegRegImmInstruction(TR::InstOpCode::VPSHUFDRegRegImm1, TR::InstOpCode::PSHUFDRegRegImm1, node, tmpXMM, hashXMM, 0x0e, cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VPADDDRegRegReg, TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
+      generateAVXorSSERegRegImmInstruction(TR::InstOpCode::VPSHUFDRegRegImm1, TR::InstOpCode::PSHUFDRegRegImm1, node, tmpXMM, hashXMM, 0x01, cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VPADDDRegRegReg, TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
       }
 
-      generateRegRegInstruction(TR::InstOpCode::MOVDReg4Reg, node, hash, hashXMM, cg);
+      generateAVXorSSERegRegInstruction(TR::InstOpCode::VMOVDReg4Reg, TR::InstOpCode::MOVDReg4Reg, node, hash, hashXMM, cg, true);
 
       cg->stopUsingRegister(index);
       cg->stopUsingRegister(tmp);
@@ -9563,8 +9564,8 @@ static TR::Register* inlineIntrinsicIndexOf(TR::Node* node, TR::CodeGenerator* c
    begLabel->setStartInternalControlFlow();
    endLabel->setEndInternalControlFlow();
 
-   generateRegRegInstruction(TR::InstOpCode::MOVDRegReg4, node, valueXMM, ch, cg);
-   generateRegMemInstruction(TR::InstOpCode::PSHUFBRegMem, node, valueXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, shuffleMask), cg), cg);
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VMOVDRegReg4, TR::InstOpCode::MOVDRegReg4, node, valueXMM, ch, cg, true);
+   generateAVXorSSERegMemInstruction(TR::InstOpCode::VPSHUFBRegRegMem, TR::InstOpCode::PSHUFBRegMem, node, valueXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, shuffleMask), cg), cg);
 
    generateRegRegInstruction(TR::InstOpCode::MOV4RegReg, node, result, offset, cg);
 
@@ -9575,9 +9576,9 @@ static TR::Register* inlineIntrinsicIndexOf(TR::Node* node, TR::CodeGenerator* c
    generateRegImmInstruction(TR::InstOpCode::ANDRegImms(), node, ECX, width - 1, cg);
    generateLabelInstruction(TR::InstOpCode::JE1, node, loopLabel, cg);
 
-   generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, scratchXMM, generateX86MemoryReference(scratch, 0, cg), cg);
+   generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, scratchXMM, generateX86MemoryReference(scratch, 0, cg), cg, true);
    generateRegRegInstruction(compareOp, node, scratchXMM, valueXMM, cg);
-   generateRegRegInstruction(TR::InstOpCode::PMOVMSKB4RegReg, node, scratch, scratchXMM, cg);
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VPMOVMSKB4RegReg, TR::InstOpCode::PMOVMSKB4RegReg, node, scratch, scratchXMM, cg, true);
    generateRegInstruction(TR::InstOpCode::SHR4RegCL, node, scratch, cg);
    generateRegRegInstruction(TR::InstOpCode::TEST4RegReg, node, scratch, scratch, cg);
    generateLabelInstruction(TR::InstOpCode::JNE1, node, endLabel, cg);
@@ -9591,9 +9592,9 @@ static TR::Register* inlineIntrinsicIndexOf(TR::Node* node, TR::CodeGenerator* c
    generateLabelInstruction(TR::InstOpCode::JGE1, node, endLabel, cg);
 
    generateLabelInstruction(TR::InstOpCode::label, node, loopLabel, cg);
-   generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, scratchXMM, generateX86MemoryReference(array, result, shift, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg);
+   generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, scratchXMM, generateX86MemoryReference(array, result, shift, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg, true);
    generateRegRegInstruction(compareOp, node, scratchXMM, valueXMM, cg);
-   generateRegRegInstruction(TR::InstOpCode::PMOVMSKB4RegReg, node, scratch, scratchXMM, cg);
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VPMOVMSKB4RegReg, TR::InstOpCode::PMOVMSKB4RegReg, node, scratch, scratchXMM, cg, true);
    generateRegRegInstruction(TR::InstOpCode::TEST4RegReg, node, scratch, scratch, cg);
    generateLabelInstruction(TR::InstOpCode::JNE1, node, endLabel, cg);
    generateRegImmInstruction(TR::InstOpCode::ADD4RegImms, node, result, width >> shift, cg);
@@ -12296,19 +12297,19 @@ J9::X86::TreeEvaluator::stringCaseConversionHelper(TR::Node *node, TR::CodeGener
 
    // 1. preparation (load value into registers, calculate length etc)
    auto lowerBndMinus1 = generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, manager.getLowerBndMinus1()), cg);
-   cursor = generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmRegLowerBndMinus1, lowerBndMinus1, cg); iComment("lower bound ascii value minus one");
+   cursor = generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, xmmRegLowerBndMinus1, lowerBndMinus1, cg, true); iComment("lower bound ascii value minus one");
 
    auto upperBnd = generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, manager.getUpperBnd()), cg);
-   cursor = generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmRegUpperBnd, upperBnd, cg); iComment("upper bound ascii value");
+   cursor = generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, xmmRegUpperBnd, upperBnd, cg, true); iComment("upper bound ascii value");
 
    auto conversionDiff = generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, manager.getConversionDiff()), cg);
-   cursor = generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmRegConversionDiff, conversionDiff, cg); iComment("case conversion diff value");
+   cursor = generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, xmmRegConversionDiff, conversionDiff, cg, true); iComment("case conversion diff value");
 
    auto minus1 = generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, MINUS1), cg);
-   cursor = generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmRegMinus1, minus1, cg); iComment("-1");
+   cursor = generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, xmmRegMinus1, minus1, cg, true); iComment("-1");
 
    auto asciiUpperBnd = generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, manager.getAsciiMax()), cg);
-   cursor = generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmRegAsciiUpperBnd, asciiUpperBnd, cg); iComment("maximum ascii value ");
+   cursor = generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, xmmRegAsciiUpperBnd, asciiUpperBnd, cg, true); iComment("maximum ascii value ");
 
    generateRegImmInstruction(TR::InstOpCode::MOV4RegImm4, node, result, 1, cg);
 
@@ -12335,29 +12336,33 @@ J9::X86::TreeEvaluator::stringCaseConversionHelper(TR::Node *node, TR::CodeGener
    generateLabelInstruction(TR::InstOpCode::JGE4, node, residueStartLabel, cg);
 
    auto srcArrayMemRef = generateX86MemoryReference(srcArray, counter, 0, headerSize, cg);
-   generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmRegArrayContentCopy0, srcArrayMemRef, cg);
+   generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVDQURegMem, TR::InstOpCode::MOVDQURegMem, node, xmmRegArrayContentCopy0, srcArrayMemRef, cg, true);
 
    //detect invalid characters
-   generateRegRegInstruction(TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy1, xmmRegArrayContentCopy0, cg);
-   generateRegRegInstruction(TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy0, cg);
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VMOVDQURegReg, TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy1, xmmRegArrayContentCopy0, cg, true);
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VMOVDQURegReg, TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy0, cg, true);
    cursor = generateRegRegInstruction(manager.isCompressedString()? TR::InstOpCode::PCMPGTBRegReg: TR::InstOpCode::PCMPGTWRegReg, node,
                              xmmRegArrayContentCopy1, xmmRegMinus1, cg); iComment(" > -1");
    cursor = generateRegRegInstruction(manager.isCompressedString()? TR::InstOpCode::PCMPGTBRegReg: TR::InstOpCode::PCMPGTWRegReg, node,
                              xmmRegArrayContentCopy2, xmmRegAsciiUpperBnd, cg); iComment(" > maximum ascii value");
-   cursor = generateRegRegInstruction(TR::InstOpCode::PANDNRegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy1, cg); iComment(" >-1 && !(> maximum ascii value) valid when all bits are set");
+   cursor = generateAVXorSSERegRegInstruction(TR::InstOpCode::VPANDNRegRegReg, TR::InstOpCode::PANDNRegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy1, cg); iComment(" >-1 && !(> maximum ascii value) valid when all bits are set");
    cursor = generateRegRegInstruction(TR::InstOpCode::PXORRegReg, node, xmmRegArrayContentCopy2, xmmRegMinus1, cg); iComment("reverse all bits");
    generateRegRegInstruction(TR::InstOpCode::PTESTRegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy2, cg);
    generateLabelInstruction(TR::InstOpCode::JNE4, node, failLabel, cg); iComment("jump out if invalid chars are detected");
 
    //calculate case conversion with vector registers
-   generateRegRegInstruction(TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy1, xmmRegArrayContentCopy0, cg);
-   generateRegRegInstruction(TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy0, cg);
-   cursor = generateRegRegInstruction(manager.isCompressedString()? TR::InstOpCode::PCMPGTBRegReg: TR::InstOpCode::PCMPGTWRegReg, node,
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VMOVDQURegReg, TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy1, xmmRegArrayContentCopy0, cg, true);
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VMOVDQURegReg, TR::InstOpCode::MOVDQURegReg, node, xmmRegArrayContentCopy2, xmmRegArrayContentCopy0, cg, true);
+
+   TR::InstOpCode::Mnemonic avxInsn = manager.isCompressedString() ? TR::InstOpCode::VPCMPGTBRegRegReg: TR::InstOpCode::VPCMPGTWRegRegReg;
+   TR::InstOpCode::Mnemonic sseInsn = manager.isCompressedString() ? TR::InstOpCode::PCMPGTBRegReg: TR::InstOpCode::PCMPGTWRegReg;
+
+   cursor = generateAVXorSSERegRegInstruction(avxInsn, sseInsn, node,
                              xmmRegArrayContentCopy0, xmmRegLowerBndMinus1, cg);  iComment(manager.toLowerCase() ? " > 'A-1'" : "> 'a-1'");
-   cursor = generateRegRegInstruction(manager.isCompressedString()? TR::InstOpCode::PCMPGTBRegReg: TR::InstOpCode::PCMPGTWRegReg, node,
+   cursor = generateAVXorSSERegRegInstruction(avxInsn, sseInsn, node,
                              xmmRegArrayContentCopy1, xmmRegUpperBnd, cg);  iComment(manager.toLowerCase()? " > 'Z'" : " > 'z'");
-   cursor = generateRegRegInstruction(TR::InstOpCode::PANDNRegReg, node, xmmRegArrayContentCopy1, xmmRegArrayContentCopy0, cg);  iComment(const_cast<char*> (manager.toLowerCase()? " >='A' && !( >'Z')": " >='a' && !( >'z')"));
-   generateRegRegInstruction(TR::InstOpCode::PANDRegReg, node, xmmRegArrayContentCopy1, xmmRegConversionDiff, cg);
+   cursor = generateAVXorSSERegRegInstruction(TR::InstOpCode::VPANDNRegRegReg, TR::InstOpCode::PANDNRegReg, node, xmmRegArrayContentCopy1, xmmRegArrayContentCopy0, cg);  iComment(const_cast<char*> (manager.toLowerCase()? " >='A' && !( >'Z')": " >='a' && !( >'z')"));
+   generateAVXorSSERegRegInstruction(TR::InstOpCode::VPANDRegRegReg, TR::InstOpCode::PANDRegReg, node, xmmRegArrayContentCopy1, xmmRegConversionDiff, cg);
 
    if (manager.toLowerCase())
       generateRegRegInstruction(manager.isCompressedString()? TR::InstOpCode::PADDBRegReg: TR::InstOpCode::PADDWRegReg, node,

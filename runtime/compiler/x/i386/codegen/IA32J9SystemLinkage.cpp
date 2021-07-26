@@ -136,7 +136,7 @@ TR::IA32J9SystemLinkage::buildDirectDispatch(TR::Node *callNode, bool spillFPReg
       generateFPMemRegInstruction(TR::InstOpCode::FSTPMemReg, callNode, tempMR, returnReg, cg());
       cg()->stopUsingRegister(returnReg); // zhxingl: this is added by me
       returnReg = cg()->allocateSinglePrecisionRegister(TR_FPR);
-      generateRegMemInstruction(TR::InstOpCode::MOVSSRegMem, callNode, returnReg, generateX86MemoryReference(*tempMR, 0, cg()), cg());
+      generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVSSRegMem, TR::InstOpCode::MOVSSRegMem, callNode, returnReg, generateX86MemoryReference(*tempMR, 0, cg()), cg(), true);
       }
    else if (callNode->getOpCode().isDouble())
       {

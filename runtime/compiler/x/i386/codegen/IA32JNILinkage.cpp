@@ -531,7 +531,7 @@ TR::Register *J9::X86::I386::JNILinkage::buildJNIDispatch(TR::Node *callNode)
       TR::MemoryReference  *tempMR = cg()->machine()->getDummyLocalMR(TR::Float);
       generateFPMemRegInstruction(TR::InstOpCode::FSTPMemReg, callNode, tempMR, returnRegister, cg());
       returnRegister = cg()->allocateSinglePrecisionRegister(TR_FPR);
-      generateRegMemInstruction(TR::InstOpCode::MOVSSRegMem, callNode, returnRegister, generateX86MemoryReference(*tempMR, 0, cg()), cg());
+      generateAVXorSSERegMemInstruction(TR::InstOpCode::VMOVSSRegMem, TR::InstOpCode::MOVSSRegMem, callNode, returnRegister, generateX86MemoryReference(*tempMR, 0, cg()), cg(), true);
       }
    else if (callNode->getOpCode().isDouble())
       {
