@@ -839,6 +839,52 @@ J9::CodeGenerator::lowerTreeIfNeeded(
          }
       }
 
+   if (node->getOpCode().isCall() &&
+         node->getSymbol()->getMethodSymbol()->isNative() &&
+         comp()->canTransformUnsafeCopyToArrayCopy())
+      {
+      TR::RecognizedMethod rm = node->getSymbol()->castToMethodSymbol()->getRecognizedMethod();
+
+      if ((rm == TR::sun_misc_Unsafe_copyMemory || rm == TR::jdk_internal_misc_Unsafe_copyMemory0) &&
+            performTransformation(comp(), "O^O Call arraycopy instead of Unsafe.copyMemory: %s\n", comp()->cg()->getDebug()->getName(node)))
+         {
+         TR::CodeGenerator *cg = comp()->cg();
+         TR::Node *src = node->getChild(1);
+         TR::Node *srcOffset = node->getChild(2);
+         TR::Node *dest = node->getChild(3);
+         TR::Node *destOffset = node->getChild(4);
+         TR::Node *len = node->getChild(5);
+
+         if (comp()->target().is32Bit())
+            {
+            srcOffset = TR::Node::create(TR::l2i, 1, srcOffset);
+            destOffset = TR::Node::create(TR::l2i, 1, destOffset);
+            len = TR::Node::create(TR::l2i, 1, len);
+            src = TR::Node::create(TR::aiadd, 2, src, srcOffset);
+            dest = TR::Node::create(TR::aiadd, 2, dest, destOffset);
+            }
+         else
+            {
+            src = TR::Node::create(TR::aladd, 2, src, srcOffset);
+            dest = TR::Node::create(TR::aladd, 2, dest, destOffset);
+            }
+
+         TR::Node *arraycopyNode = TR::Node::createArraycopy(src, dest, len);
+         TR::TreeTop *arrayCopyTT = TR::TreeTop::create(comp(), arraycopyNode, tt->getNextTreeTop(), tt->getPrevTreeTop());
+
+         tt->getPrevTreeTop()->setNextTreeTop(arrayCopyTT);
+         tt->getNextTreeTop()->setPrevTreeTop(arrayCopyTT);
+         tt->getNode()->recursivelyDecReferenceCount();
+
+         if (node->getChild(0)->getRegister())
+            {
+            cg->decReferenceCount(node->getChild(0));
+            }
+
+         return;
+         }
+      }
+
    // J9
    //
    // if we found this iterator method inlined in a scorching method

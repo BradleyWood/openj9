@@ -26,6 +26,7 @@
 		<variations>
 			<variation>-DScenario=Regular</variation>
 			<variation>-DScenario=Compiled</variation>
+			<variation>-DScenario=Compiled -Xjit:optLevel=noOpt</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
  	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)OpenJ9Unsafe.jar$(P).$(Q) \
@@ -53,6 +54,7 @@
 		<variations>
 			<variation>-DScenario=Regular</variation>
 			<variation>-DScenario=Compiled</variation>
+			<variation>-DScenario=Compiled -Xjit:optLevel=noOpt</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	--add-opens java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
