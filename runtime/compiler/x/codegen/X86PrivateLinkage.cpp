@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2021 IBM Corp. and others
+ * Copyright (c) 2000, 2022 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -2344,7 +2344,7 @@ TR::Register *J9::X86::PrivateLinkage::buildCallPostconditions(TR::X86CallSite &
       TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
       if(!lr || lr->getNumberOfLiveRegisters() > 0)
          {
-         for (regIndex = TR::RealRegister::FirstXMMR; regIndex <= TR::RealRegister::LastXMMR; regIndex = (TR::RealRegister::RegNum)(regIndex + 1))
+         for (regIndex = TR::RealRegister::FirstXMMR; regIndex <= machine()->getLastXMMR(); regIndex = (TR::RealRegister::RegNum)(regIndex + 1))
             {
             TR_ASSERT(regIndex != highReturnRegIndex, "highReturnRegIndex should not be an XMM register.");
             if ((regIndex != returnRegIndex) && !properties.isPreservedRegister(regIndex))

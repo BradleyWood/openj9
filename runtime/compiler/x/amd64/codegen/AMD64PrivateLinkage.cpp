@@ -192,8 +192,14 @@ J9::X86::AMD64::PrivateLinkage::PrivateLinkage(TR::CodeGenerator *cg)
       _properties._registerFlags[TR::RealRegister::rIndex(r)]    = Preserved;
    if(!INTERPRETER_CLOBBERS_XMMS)
       for(r=8; r <= 15; r++)
+         {
          _properties._registerFlags[TR::RealRegister::xmmIndex(r)]  = Preserved;
-
+         if (cg->comp()->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+            {
+             for (r=16; r<=31; r++)
+                _properties._registerFlags[TR::RealRegister::xmmIndex(r)] = Preserved;
+            }
+         }
 
    p = 0;
    if (TR::Machine::enableNewPickRegister())
@@ -256,7 +262,38 @@ J9::X86::AMD64::PrivateLinkage::PrivateLinkage(TR::CodeGenerator *cg)
    _properties._allocationOrder[p++] = TR::RealRegister::xmm14;
    _properties._allocationOrder[p++] = TR::RealRegister::xmm15;
 
+   if (cg->comp()->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+      {
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm16;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm17;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm18;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm19;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm20;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm21;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm22;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm23;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm24;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm25;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm26;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm27;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm28;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm29;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm30;
+      _properties._allocationOrder[p++] = TR::RealRegister::xmm31;
+      }
+
    TR_ASSERT(p == (machine()->getNumGlobalGPRs() + machine()->_numGlobalFPRs), "assertion failure");
+
+   if (cg->comp()->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+      {
+      _properties._allocationOrder[p++] = TR::RealRegister::k1;
+      _properties._allocationOrder[p++] = TR::RealRegister::k2;
+      _properties._allocationOrder[p++] = TR::RealRegister::k3;
+      _properties._allocationOrder[p++] = TR::RealRegister::k4;
+      _properties._allocationOrder[p++] = TR::RealRegister::k5;
+      _properties._allocationOrder[p++] = TR::RealRegister::k6;
+      _properties._allocationOrder[p++] = TR::RealRegister::k7;
+      }
    }
 
 

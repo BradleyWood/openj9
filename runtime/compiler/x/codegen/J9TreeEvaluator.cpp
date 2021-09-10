@@ -1183,7 +1183,7 @@ TR::Register *J9::X86::AMD64::TreeEvaluator::conditionalHelperEvaluator(TR::Node
       // TODO:AMD64: This would be a useful general facility to have.
       //
       TR::Machine *machine = cg->machine();
-      TR::RegisterDependencyConditions  *postConditions = new (cg->trHeapMemory()) TR::RegisterDependencyConditions((uint8_t)0, TR::RealRegister::NumRegisters, cg->trMemory());
+      TR::RegisterDependencyConditions  *postConditions = new (cg->trHeapMemory()) TR::RegisterDependencyConditions((uint8_t)0, machine->getNumRegisters(), cg->trMemory());
       if (thisReg)
          postConditions->addPostCondition(thisReg, TR::RealRegister::NoReg, cg);
 
