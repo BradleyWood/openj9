@@ -135,11 +135,19 @@ J9::X86::AMD64::PrivateLinkage::PrivateLinkage(TR::CodeGenerator *cg)
    _properties._numberOfPreservedGPRegisters = p;
 
    if (!INTERPRETER_CLOBBERS_XMMS)
-      for (r=8; r<=15; r++)
+      {
+      for (r = 8; r <= 15; r++)
          {
          _properties._preservedRegisters[p++] = TR::RealRegister::xmmIndex(r);
          _properties._preservedRegisterMapForGC |= TR::RealRegister::xmmrMask(TR::RealRegister::xmmIndex(r));
          }
+      for (r = 16; r <= 31; r++)
+         {
+         _properties._preservedRegisters[p++] = TR::RealRegister::xmmIndex(r);
+         _properties._preservedRegisterMapForGC |= TR::RealRegister::xmmrMask(TR::RealRegister::xmmIndex(r));
+         }
+         //TODO p static_cast<J9::X86::AMD64::PrivateLinkage*>(_cg->getLinkage(TR_Private))
+      }
 
    _properties._numberOfPreservedXMMRegisters = p - _properties._numberOfPreservedGPRegisters;
    _properties._maxRegistersPreservedInPrologue = p;
@@ -162,7 +170,7 @@ J9::X86::AMD64::PrivateLinkage::PrivateLinkage(TR::CodeGenerator *cg)
    _properties._methodMetaDataRegister = metaReg;
 
    _properties._numberOfVolatileGPRegisters  = 6; // rax, rsi, rdx, rcx, rdi, r8
-   _properties._numberOfVolatileXMMRegisters = INTERPRETER_CLOBBERS_XMMS? 16 : 8; // xmm0-xmm7
+   _properties._numberOfVolatileXMMRegisters = INTERPRETER_CLOBBERS_XMMS ? 32 : 8; // xmm0-xmm7
 
    // Offsets relative to where the frame pointer *would* point if we had one;
    // namely, the local with the highest address (ie. the "first" local)
@@ -191,9 +199,12 @@ J9::X86::AMD64::PrivateLinkage::PrivateLinkage(TR::CodeGenerator *cg)
    for(r=9; r <= lastPreservedRegister; r++)
       _properties._registerFlags[TR::RealRegister::rIndex(r)]    = Preserved;
    if(!INTERPRETER_CLOBBERS_XMMS)
-      for(r=8; r <= 15; r++)
-         _properties._registerFlags[TR::RealRegister::xmmIndex(r)]  = Preserved;
-
+      {
+      for (r = 8; r <= 15; r++)
+         {
+         _properties._registerFlags[TR::RealRegister::xmmIndex(r)] = Preserved;
+         }
+      }
 
    p = 0;
    if (TR::Machine::enableNewPickRegister())
@@ -256,7 +267,15 @@ J9::X86::AMD64::PrivateLinkage::PrivateLinkage(TR::CodeGenerator *cg)
    _properties._allocationOrder[p++] = TR::RealRegister::xmm14;
    _properties._allocationOrder[p++] = TR::RealRegister::xmm15;
 
-   TR_ASSERT(p == (machine()->getNumGlobalGPRs() + machine()->_numGlobalFPRs), "assertion failure");
+   TR_ASSERT_FATAL(p == (machine()->getNumGlobalGPRs() + machine()->_numGlobalFPRs), "assertion failure");
+
+   if (cg->comp()->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+      {
+      for (TR::RealRegister::RegNum reg = TR::RealRegister::k1; reg <= TR::RealRegister::k7; reg = static_cast<TR::RealRegister::RegNum>(reg + 1))
+         {
+         _properties._allocationOrder[p++] = reg;
+         }
+      }
    }
 
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2021 IBM Corp. and others
+ * Copyright (c) 2000, 2022 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -50,7 +50,7 @@ class RealRegisterManager
    ~RealRegisterManager()
       {
       // RAII: stop using all registers
-      for (uint8_t i = (uint8_t)TR::RealRegister::NoReg; i < (uint8_t)TR::RealRegister::NumRegisters; i++)
+      for (uint8_t i = (uint8_t)TR::RealRegister::NoReg; i < TR::RealRegister::NumRegisters; i++)
          {
          if (_Registers[i] != NULL)
             {
@@ -75,7 +75,7 @@ class RealRegisterManager
       TR::RegisterDependencyConditions* deps = generateRegisterDependencyConditions(NumberOfRegistersInUse() + 1, // For VMThread
                                                                                     NumberOfRegistersInUse() + 1, // For VMThread
                                                                                     _cg);
-      for (uint8_t i = (uint8_t)TR::RealRegister::NoReg; i < (uint8_t)TR::RealRegister::NumRegisters; i++)
+      for (uint8_t i = (uint8_t)TR::RealRegister::NoReg; i < (uint8_t) TR::RealRegister::NumRegisters; i++)
          {
          if (_Registers[i] != NULL)
             {
