@@ -22,6 +22,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "j9cfg.h"
 #include "j9consts.h"
@@ -513,9 +514,39 @@ isExceptionTypeCaughtByHandler(J9VMThread *currentThread, J9Class *thrownExcepti
 }
 
 
-void  
+UDATA visitMethod(J9VMThread * vmThread, J9StackWalkState * walkState) {
+	J9Method * method = walkState->method;
+
+	if (method) {
+		J9UTF8 * className = J9ROMCLASS_CLASSNAME(UNTAGGED_METHOD_CP(method)->ramClass->romClass);
+
+		if (strncmp((const char*)className->data, "ReferencePipeline$3$1", 21) == 0) {
+			int *ptr = 0;
+			printf("%i", *ptr);
+		}
+	}
+
+	return J9_STACKWALK_KEEP_ITERATING;
+}
+
+
+void
+dumpOnAccept(J9VMThread *currentThread)
+{
+	J9JavaVM *vm = currentThread->javaVM;
+	J9StackWalkState walkState;
+	walkState.walkThread = currentThread;
+	walkState.frameWalkFunction = visitMethod;
+	walkState.skipCount = 0;
+	walkState.flags = J9_STACKWALK_VISIBLE_ONLY | J9_STACKWALK_INCLUDE_NATIVES | J9_STACKWALK_ITERATE_FRAMES;
+	vm->walkStackFrames(currentThread, &walkState);
+}
+
+void
 setCurrentException(J9VMThread *currentThread, UDATA exceptionNumber, UDATA *detailMessage)
 {
+	if (exceptionNumber == J9VMCONSTANTPOOL_JAVALANGINCOMPATIBLECLASSCHANGEERROR)
+		dumpOnAccept(currentThread);
 	setCurrentExceptionWithUtfCause(currentThread, exceptionNumber, detailMessage, NULL, NULL);
 }
 
@@ -523,14 +554,17 @@ setCurrentException(J9VMThread *currentThread, UDATA exceptionNumber, UDATA *det
  * Creates exception with its cause and detailed message
  *
  * @param currentThread
- * @param exceptionNumber    
- * @param detailMessage         
- * @param cause 
- * 
+ * @param exceptionNumber
+ * @param detailMessage
+ * @param cause
+ *
  */
 static void
 internalSetCurrentExceptionWithCause(J9VMThread *currentThread, UDATA exceptionNumber, UDATA *detailMessage, const char *utfMessage, j9object_t cause)
 {
+	if (exceptionNumber == J9VMCONSTANTPOOL_JAVALANGINCOMPATIBLECLASSCHANGEERROR)
+		dumpOnAccept(currentThread);
+
 	UDATA index = 0;
 	UDATA * preservedMessage = NULL;
 	UDATA resetOutOfMemory = 0;
@@ -625,17 +659,17 @@ internalSetCurrentExceptionWithCause(J9VMThread *currentThread, UDATA exceptionN
 
 		if (J9_EVENT_IS_HOOKED(vm->hookInterface, J9HOOK_VM_RESOURCE_EXHAUSTED)) {
 			UDATA resourceTypes;
-				
+
 			/* The caller might have specified OOM exception type bits */
 			resourceTypes = exceptionNumber & J9_EX_OOM_TYPE_MASK;
 
 			/* No bits specified, we are dealing with a regular Java Heap OOM */
 			if (resourceTypes == 0) {
-				resourceTypes = J9_EX_OOM_JAVA_HEAP;  	
+				resourceTypes = J9_EX_OOM_JAVA_HEAP;
 			}
 
 			ALWAYS_TRIGGER_J9HOOK_VM_RESOURCE_EXHAUSTED(vm->hookInterface, currentThread, resourceTypes, utfMessage);
-		}			
+		}
 
 		/* OOM_STATE_2 : If we're already throwing OutOfMemory, use the cached Throwable */
 		if (currentThread->privateFlags & J9_PRIVATE_FLAGS_OUT_OF_MEMORY) {
@@ -657,10 +691,10 @@ throwOutOfMemory:
 				DROP_OBJECT_IN_SPECIAL_FRAME(currentThread); /* cause */
 				goto done;
 			}
-			
+
 			/* OOM_STATE_2 */
 			currentThread->privateFlags |= J9_PRIVATE_FLAGS_FINAL_CALL_OUT_OF_MEMORY;
-			
+
 			/* If there's a walkback object in the Throwable, zero it */
 
 			exceptionClass = J9OBJECT_CLAZZ(currentThread, exception);
@@ -671,10 +705,10 @@ throwOutOfMemory:
 
 				for (i = 0; i < J9INDEXABLEOBJECT_SIZE(currentThread, walkback); i++) {
 					J9JAVAARRAYOFUDATA_STORE(currentThread, walkback, i, 0);
-				} 
+				}
 				currentThread->privateFlags |= J9_PRIVATE_FLAGS_FILL_EXISTING_TRACE;
 			}
-						
+
 			goto sendConstructor;
 		}
 		/* OOM_STATE_1 */
@@ -682,8 +716,8 @@ throwOutOfMemory:
 		resetOutOfMemory = TRUE;
 	}
 
-	/* Get the class of the exception, loading the class if necessary.  
-	 * Fetch known class fatal exits if the class cannot be found. 
+	/* Get the class of the exception, loading the class if necessary.
+	 * Fetch known class fatal exits if the class cannot be found.
      */
 	exceptionClass = internalFindKnownClass(currentThread, index, J9_FINDKNOWNCLASS_FLAG_INITIALIZE | J9_FINDKNOWNCLASS_FLAG_NON_FATAL);
 	if (exceptionClass == NULL) {
@@ -772,7 +806,7 @@ typedef struct J9RedirectedSetCurrentExceptionWithCauseArgs {
 
 /**
  * This is an helper function to call internalSetCurrentExceptionWithCause indirectly from gpProtectAndRun function.
- * 
+ *
  * @param entryArg	Argument structure (J9RedirectedSetCurrentExceptionWithCauseArgs).
  */
 static UDATA
@@ -789,12 +823,12 @@ gpProtectedSetCurrentExceptionWithCause(void *entryArg)
  * This function makes sure that call to "internalSetCurrentExceptionWithCause" is gpProtected
  *
  * @param currentThread
- * @param exceptionNumber    
- * @param detailMessage         
- * @param cause  
+ * @param exceptionNumber
+ * @param detailMessage
+ * @param cause
  *
  */
-void  
+void
 setCurrentExceptionWithCause(J9VMThread *currentThread, UDATA exceptionNumber, UDATA *detailMessage, j9object_t cause)
 {
 	setCurrentExceptionWithUtfCause(currentThread, exceptionNumber, detailMessage, NULL, cause);
@@ -803,6 +837,9 @@ setCurrentExceptionWithCause(J9VMThread *currentThread, UDATA exceptionNumber, U
 void
 setCurrentExceptionWithUtfCause(J9VMThread *currentThread, UDATA exceptionNumber, UDATA *detailMessage, const char *utfMessage, j9object_t cause)
 {
+	if (exceptionNumber == J9VMCONSTANTPOOL_JAVALANGINCOMPATIBLECLASSCHANGEERROR)
+		dumpOnAccept(currentThread);
+
 	if (currentThread->gpProtected) {
 		internalSetCurrentExceptionWithCause(currentThread, exceptionNumber, detailMessage, utfMessage, cause);
 	} else {
