@@ -11872,9 +11872,9 @@ J9::X86::TreeEvaluator::directCallEvaluator(TR::Node *node, TR::CodeGenerator *c
          break;
       case TR::java_lang_StringLatin1_inflate:
          if (cg->getSupportsInlineStringLatin1Inflate())
-         {
-         return TR::TreeEvaluator::inlineStringLatin1Inflate(node, cg);
-         }
+            {
+            return TR::TreeEvaluator::inlineStringLatin1Inflate(node, cg);
+            }
          break;
       case TR::java_lang_Math_sqrt:
       case TR::java_lang_StrictMath_sqrt:
@@ -11991,7 +11991,7 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
 
    // vectorized add in loop, 16 bytes per iteration
    // use srcOffsetReg for loop counter, add starting offset to lengthReg, subtract 16 (xmm register size)
-   // to prevent reading/writing beyond beyond the end of the array
+   // to prevent reading/writing beyond the end of the array
    generateRegMemInstruction(TR::InstOpCode::LEA4RegMem, node, pl, generateX86MemoryReference(lengthReg, srcOffsetReg, 0, -vectorLengthConst, cg), cg);
 
    generateLabelInstruction(TR::InstOpCode::label, node, startLoop, cg);
@@ -11999,7 +11999,7 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    generateLabelInstruction(TR::InstOpCode::JG4, node, endLoop, cg);
 
    generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, xmmHighReg, generateX86MemoryReference(srcBufferReg, srcOffsetReg, 0, headerOffsetConst, cg), cg);
-   // TODO; avoid this copy in the future by adding support for VPUNPCK instructions
+
    generateRegRegInstruction(TR::InstOpCode::MOVDQURegReg, node, xmmLowReg, xmmHighReg, cg);
    generateRegRegInstruction(TR::InstOpCode::PUNPCKHBWRegReg, node, xmmLowReg, zeroReg, cg);
    generateMemRegInstruction(TR::InstOpCode::MOVDQUMemReg, node, generateX86MemoryReference(destBufferReg, destOffsetReg, 0, headerOffsetConst + vectorLengthConst, cg), xmmLowReg, cg);
@@ -12012,7 +12012,7 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, srcOffsetReg, vectorLengthConst, cg);
    generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, destOffsetReg, 2 * vectorLengthConst, cg);
 
-   //   LOOP BACK
+   // LOOP BACK
    generateLabelInstruction(TR::InstOpCode::JMP4, node, startLoop, cg);
    generateLabelInstruction(TR::InstOpCode::label, node, endLoop, cg);
 
@@ -12051,16 +12051,14 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
 
    for (int i = 0; i < 7; i++)
       {
-      generateRegMemInstruction(TR::InstOpCode::MOVZXReg2Mem1, node, pl, generateX86MemoryReference(srcOffsetReg,  vectorLengthConst + 6 - i, cg), cg);
-      generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, generateX86MemoryReference(destOffsetReg, vectorLengthConst + 2 * (6 - i), cg), pl, cg);
+      generateRegMemInstruction(TR::InstOpCode::MOVZXReg2Mem1, node, pl, generateX86MemoryReference(srcOffsetReg,  headerOffsetConst + 6 - i, cg), cg);
+      generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, generateX86MemoryReference(destOffsetReg, headerOffsetConst + 2 * (6 - i), cg), pl, cg);
       }
 
    generateLabelInstruction(TR::InstOpCode::label, node, afterDuffDevice, deps, cg);
    afterDuffDevice->setEndInternalControlFlow();
 
-   cg->stopUsingRegister(srcBufferReg);
    cg->stopUsingRegister(srcOffsetReg);
-   cg->stopUsingRegister(destBufferReg);
    cg->stopUsingRegister(destOffsetReg);
    cg->stopUsingRegister(lengthReg);
 
