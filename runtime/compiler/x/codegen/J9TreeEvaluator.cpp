@@ -11989,6 +11989,19 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
 
    generateLabelInstruction(TR::InstOpCode::label, node, afterCopy8Label, cg);
 
+   TR::LabelSymbol *afterInt3 = generateLabelSymbol(cg);
+
+   generateRegImmInstruction(TR::InstOpCode::CMP4RegImm4, node, lengthReg, 8, cg);
+   generateLabelInstruction(TR::InstOpCode::JL1, node, afterInt3, cg);
+
+   generateRegImmInstruction(TR::InstOpCode::CMP4RegImm4, node, lengthReg, 0, cg);
+   generateLabelInstruction(TR::InstOpCode::JGE1, node, afterInt3, cg);
+
+   // length < 0 or length > 7
+   generateInstruction(TR::InstOpCode::INT3, node, cg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, afterInt3, cg);
+
    // handle residual (< 8 bytes left) & jump to copy instructions based on the number of bytes left
    // calculate how many bytes to skip based on length;
 
@@ -11998,18 +12011,19 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    // since copy_instruction_size could change depending on which registers are allocated to scratchReg, srcOffsetReg and destOffsetReg
    // we reserve them to be eax, ecx, edx, respectively
 
-   generateRegRegImmInstruction(TR::InstOpCode::IMUL4RegRegImm4, node, lengthReg, lengthReg, -copy_instruction_size, cg);
-   generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, lengthReg, copy_instruction_size * 7, cg);
+   TR::Register *jmpAddrReg = lengthReg; // repurpose and rename register for clarity
+   generateRegRegImmInstruction(TR::InstOpCode::IMUL4RegRegImm4, node, jmpAddrReg, lengthReg, -copy_instruction_size, cg);
+   generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, jmpAddrReg, copy_instruction_size * 7, cg);
 
    bool is64bit = cg->comp()->target().is64Bit();
    // calculate address to jump too
    generateRegMemInstruction(TR::InstOpCode::LEARegMem(is64bit), node, scratchReg, generateX86MemoryReference(copyResidueLabel, cg), cg);
-   generateRegRegInstruction(TR::InstOpCode::ADDRegReg(is64bit), node, lengthReg, scratchReg, cg);
+   generateRegRegInstruction(TR::InstOpCode::ADDRegReg(is64bit), node, jmpAddrReg, scratchReg, cg);
 
    generateRegMemInstruction(TR::InstOpCode::LEARegMem(is64bit), node, srcOffsetReg, generateX86MemoryReference(srcBufferReg, srcOffsetReg, 0, 0, cg), cg);
    generateRegMemInstruction(TR::InstOpCode::LEARegMem(is64bit), node, destOffsetReg, generateX86MemoryReference(destBufferReg, destOffsetReg, 0, 0, cg), cg);
 
-   generateRegInstruction(TR::InstOpCode::JMPReg, node, lengthReg, cg);
+   generateRegInstruction(TR::InstOpCode::JMPReg, node, jmpAddrReg, cg);
 
    generateLabelInstruction(TR::InstOpCode::label, node, copyResidueLabel, cg);
 
@@ -12036,7 +12050,7 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
       cg->decReferenceCount(node->getChild(i));
       }
 
-   return NULL;
+   return destBufferReg;
    }
 
 TR::Register *
