@@ -11992,8 +11992,8 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    // handle residual (< 8 bytes left) & jump to copy instructions based on the number of bytes left
    // calculate how many bytes to skip based on length;
 
-   const int copy_instruction_size = 5  // size of MOVZXReg2Mem1
-                                    +4; // size of S2MemReg
+   const int copy_instruction_size = 8  // size of MOVZXReg2Mem1
+                                    +7; // size of S2MemReg
 
    // since copy_instruction_size could change depending on which registers are allocated to scratchReg, srcOffsetReg and destOffsetReg
    // we reserve them to be eax, ecx, edx, respectively
@@ -12015,8 +12015,14 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
 
    for (int i = 0; i < 7; i++)
       {
-      generateRegMemInstruction(TR::InstOpCode::MOVZXReg2Mem1, node, scratchReg, generateX86MemoryReference(srcOffsetReg, headerOffsetConst + 6 - i, cg), cg);
-      generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, generateX86MemoryReference(destOffsetReg, headerOffsetConst + 2 * (6 - i), cg), scratchReg, cg);
+      TR::MemoryReference *srcMR = generateX86MemoryReference(srcOffsetReg, headerOffsetConst + 6 - i, cg);
+      TR::MemoryReference *targetMR = generateX86MemoryReference(destOffsetReg, headerOffsetConst + 2 * (6 - i), cg);
+
+      srcMR->setForceWideDisplacement();
+      targetMR->setForceWideDisplacement();
+
+      generateRegMemInstruction(TR::InstOpCode::MOVZXReg2Mem1, node, scratchReg, srcMR, cg);
+      generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, targetMR, scratchReg, cg);
       }
 
    generateLabelInstruction(TR::InstOpCode::label, node, doneLabel, deps, cg);
