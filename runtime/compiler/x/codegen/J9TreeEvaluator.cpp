@@ -12019,6 +12019,9 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
       generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, generateX86MemoryReference(destOffsetReg, headerOffsetConst + 2 * (6 - i), cg), scratchReg, cg);
       }
 
+
+   generateMemRegInstruction(TR::InstOpCode::MY_S2MemReg, node, generateX86MemoryReference(destOffsetReg, headerOffsetConst, cg), scratchReg, cg);
+
    generateLabelInstruction(TR::InstOpCode::label, node, doneLabel, deps, cg);
    doneLabel->setEndInternalControlFlow();
 
