@@ -11912,9 +11912,9 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    deps->addPostCondition(lengthReg, TR::RealRegister::NoReg, cg);
    deps->addPostCondition(srcBufferReg, TR::RealRegister::NoReg, cg);
    deps->addPostCondition(destBufferReg, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(scratchReg, TR::RealRegister::eax, cg);
-   deps->addPostCondition(srcOffsetReg, TR::RealRegister::ecx, cg);
-   deps->addPostCondition(destOffsetReg, TR::RealRegister::edx, cg);
+   deps->addPostCondition(scratchReg, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(srcOffsetReg, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(destOffsetReg, TR::RealRegister::NoReg, cg);
    deps->stopAddingConditions();
 
    TR::LabelSymbol *doneLabel = generateLabelSymbol(cg);
@@ -11989,35 +11989,20 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
 
    generateLabelInstruction(TR::InstOpCode::label, node, afterCopy8Label, cg);
 
-   // handle residual (< 8 bytes left) & jump to copy instructions based on the number of bytes left
-   // calculate how many bytes to skip based on length;
-
-   const int copy_instruction_size = 5  // size of MOVZXReg2Mem1
-                                    +4; // size of S2MemReg
-
-   // since copy_instruction_size could change depending on which registers are allocated to scratchReg, srcOffsetReg and destOffsetReg
-   // we reserve them to be eax, ecx, edx, respectively
-
-   generateRegRegImmInstruction(TR::InstOpCode::IMUL4RegRegImm4, node, lengthReg, lengthReg, -copy_instruction_size, cg);
-   generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, lengthReg, copy_instruction_size * 7, cg);
-
    bool is64bit = cg->comp()->target().is64Bit();
-   // calculate address to jump too
-   generateRegMemInstruction(TR::InstOpCode::LEARegMem(is64bit), node, scratchReg, generateX86MemoryReference(copyResidueLabel, cg), cg);
-   generateRegRegInstruction(TR::InstOpCode::ADDRegReg(is64bit), node, lengthReg, scratchReg, cg);
 
-   generateRegMemInstruction(TR::InstOpCode::LEARegMem(is64bit), node, srcOffsetReg, generateX86MemoryReference(srcBufferReg, srcOffsetReg, 0, 0, cg), cg);
-   generateRegMemInstruction(TR::InstOpCode::LEARegMem(is64bit), node, destOffsetReg, generateX86MemoryReference(destBufferReg, destOffsetReg, 0, 0, cg), cg);
+   // handle residual (< 8 bytes left)
 
-   generateRegInstruction(TR::InstOpCode::JMPReg, node, lengthReg, cg);
+   generateRegRegInstruction(TR::InstOpCode::TEST4RegReg, node, lengthReg, lengthReg, cg);
+   generateLabelInstruction(TR::InstOpCode::JE4, node, doneLabel, cg);
 
-   generateLabelInstruction(TR::InstOpCode::label, node, copyResidueLabel, cg);
+   generateRegMemInstruction(TR::InstOpCode::MOVZXReg2Mem1, node, scratchReg, generateX86MemoryReference(srcBufferReg, srcOffsetReg, 0, headerOffsetConst, cg), cg);
+   generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, generateX86MemoryReference(destBufferReg, destOffsetReg, 0, headerOffsetConst, cg), scratchReg, cg);
 
-   for (int i = 0; i < 7; i++)
-      {
-      generateRegMemInstruction(TR::InstOpCode::MOVZXReg2Mem1, node, scratchReg, generateX86MemoryReference(srcOffsetReg, headerOffsetConst + 6 - i, cg), cg);
-      generateMemRegInstruction(TR::InstOpCode::S2MemReg, node, generateX86MemoryReference(destOffsetReg, headerOffsetConst + 2 * (6 - i), cg), scratchReg, cg);
-      }
+   generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, srcOffsetReg, 1, cg);
+   generateRegImmInstruction(TR::InstOpCode::ADD4RegImm4, node, destOffsetReg, 2, cg);
+   generateRegImmInstruction(TR::InstOpCode::SUB4RegImm4, node, lengthReg, 1, cg);
+   generateLabelInstruction(TR::InstOpCode::JMP4, node, afterCopy8Label, cg);
 
    generateLabelInstruction(TR::InstOpCode::label, node, doneLabel, deps, cg);
    doneLabel->setEndInternalControlFlow();
