@@ -34,4 +34,9 @@
             <class name="org.openj9.test.foreignMemoryAccess.TestCloseScope0"/>
         </classes>
     </test>
+    <test name="BinaryOperatorTests">
+        <classes>
+            <class name="org.openj9.test.jep338.TestBinaryOperator"/>
+        </classes>
+    </test>
 </suite>

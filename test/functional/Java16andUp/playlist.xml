@@ -171,6 +171,28 @@
 	</test>
 
 	<test>
+		<testCaseName>BinaryOperatorTests</testCaseName>
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) $(JAVA_COMMAND) $(JVM_OPTIONS) \
+			--add-modules jdk.incubator.vector \
+			-cp $(Q)$(LIB_DIR)$(D)asm.jar$(P)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+			org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
+			-testnames BinaryOperatorTests \
+			-groups $(TEST_GROUP) \
+			-excludegroups $(DEFAULT_EXCLUDE); \
+			$(TEST_STATUS)
+		</command>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<versions>
+			<version>16+</version>
+		</versions>
+	</test>
+
+	<test>
 		<testCaseName>Jep389Tests_testClinkerFfi_DownCall</testCaseName>
 		<disables>
 			<disable>
