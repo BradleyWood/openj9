@@ -6393,7 +6393,8 @@ bool TR_EscapeAnalysis::fixupFieldAccessForNonContiguousAllocation(TR::Node *nod
             TR::Node::recreate(node,
                                (node->getDataType().isVector() && node->getDataType().getVectorElementType() == TR::Double)
                                ? TR::vdgetelem : TR::vigetelem);
-            node->setAndIncChild(0, TR::Node::create(node, TR::vload, 0));
+            TR::ILOpCode load = TR::ILOpCode::createVectorOpCode(OMR::vload, autoSymRef->getSymbol()->getDataType()).getOpCodeValue();
+            node->setAndIncChild(0, TR::Node::create(node, load.getOpCodeValue(), 0));
             node->setNumChildren(2);
             node->getFirstChild()->setSymbolReference(autoSymRef);
             node->setAndIncChild(1, TR::Node::create(node, TR::iconst, 0, elem-1));
@@ -6438,12 +6439,14 @@ bool TR_EscapeAnalysis::fixupFieldAccessForNonContiguousAllocation(TR::Node *nod
          if (autoSymRef->getSymbol()->getDataType().isVector() &&
              !node->getDataType().isVector())
             {
-            TR::Node::recreate(node, TR::vstore);
+            TR::ILOpCode store = TR::ILOpCode::createVectorOpCode(OMR::vstore, autoSymRef->getSymbol()->getDataType()).getOpCodeValue();
+            TR::Node::recreate(node, store.getOpCodeValue());
             TR::Node *value = node->getFirstChild();
             TR::Node *newValue = TR::Node::create(node,
                                                   (node->getDataType().isVector() && node->getDataType().getVectorElementType() == TR::Double)
                                                   ? TR::vdsetelem : TR::visetelem, 3);
-            newValue->setAndIncChild(0, TR::Node::create(node, TR::vload, 0));
+            TR::ILOpCode load = TR::ILOpCode::createVectorOpCode(OMR::vload, autoSymRef->getSymbol()->getDataType()).getOpCodeValue();
+            newValue->setAndIncChild(0, TR::Node::create(node, load.getOpCodeValue(), 0));
             newValue->getFirstChild()->setSymbolReference(autoSymRef);
             newValue->setChild(1, value);
             newValue->setAndIncChild(2, TR::Node::create(node, TR::iconst, 0, elem-1));

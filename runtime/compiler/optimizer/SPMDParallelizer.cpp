@@ -730,7 +730,9 @@ bool TR_SPMDKernelParallelizer::visitNodeToSIMDize(TR::Node *parent, int32_t chi
             if (loadInductionVar)
                {
                // confirm platform supports vectorizing PIV uses
-               bool platformSupport = comp->cg()->getSupportsOpCodeForAutoSIMD(TR::vstore, node->getDataType());
+               TR::DataType vectorType = OMR::DataType(node->getDataType()).scalarToVector(TR::VectorLength128);
+               TR::ILOpCode store = TR::ILOpCode::createVectorOpCode(OMR::vstore, vectorType).getOpCodeValue();
+               bool platformSupport = comp->cg()->getSupportsOpCodeForAutoSIMD(store.getOpCodeValue(), node->getDataType());
                platformSupport = platformSupport && comp->cg()->getSupportsOpCodeForAutoSIMD(TR::vsetelem, node->getDataType());
 
                TR::ILOpCodes vectorAddOpCode = TR::ILOpCode::createVectorOpCode(OMR::vadd, TR::DataType::createVectorType((TR::DataTypes)node->getDataType().getDataType(), VECTOR_LENGTH)).getOpCodeValue();
@@ -830,7 +832,9 @@ bool TR_SPMDKernelParallelizer::visitNodeToSIMDize(TR::Node *parent, int32_t chi
             vaddNode->setAndIncChild(0, splatsNode);
             vaddNode->setAndIncChild(1, vsetelem3Node);
 
-            TR::Node *vstoreNode = TR::Node::createWithSymRef(TR::vstore, 1, 1, vaddNode, vecSymRef);
+            TR::DataType vectorType = OMR::DataType(node->getDataType()).scalarToVector(TR::VectorLength128);
+            TR::ILOpCode store = TR::ILOpCode::createVectorOpCode(OMR::vstore, vectorType).getOpCodeValue();
+            TR::Node *vstoreNode = TR::Node::createWithSymRef(store.getOpCodeValue(), 1, 1, vaddNode, vecSymRef);
 
             TR::TreeTop *insertionPoint = loopInvariantBlock->getEntry();
             TR::Node    *treetopNode = TR::Node::create(TR::treetop, 1, vstoreNode);
@@ -1010,13 +1014,17 @@ bool TR_SPMDKernelParallelizer::autoSIMDReductionSupported(TR::Compilation *comp
       return false;
       }
 
-   if (!comp->cg()->getSupportsOpCodeForAutoSIMD(TR::vstore, node->getDataType()))
+   TR::DataType vectorType = OMR::DataType(node->getDataType()).scalarToVector(TR::VectorLength128);
+   TR::ILOpCode store = TR::ILOpCode::createVectorOpCode(OMR::vstore, vectorType).getOpCodeValue();
+
+   if (!comp->cg()->getSupportsOpCodeForAutoSIMD(store, node->getDataType()))
       {
       if (trace) traceMsg(comp, "   autoSIMDReductionSupported: vstore is not supported for dataType: %s\n", node->getDataType().toString());
       return false;
       }
 
-   if (!comp->cg()->getSupportsOpCodeForAutoSIMD(TR::vload, node->getDataType()))
+   TR::ILOpCode load = TR::ILOpCode::createVectorOpCode(OMR::vload, vectorType).getOpCodeValue();
+   if (!comp->cg()->getSupportsOpCodeForAutoSIMD(load.getOpCodeValue(), node->getDataType()))
       {
       if (trace) traceMsg(comp, "   autoSIMDReductionSupported: vload is not supported for dataType: %s\n", node->getDataType().toString());
       return false;
@@ -1254,7 +1262,9 @@ bool TR_SPMDKernelParallelizer::reductionLoopEntranceProcessing(TR::Compilation 
 
    splatsNode->setAndIncChild(0, constNode);
 
-   TR::Node *vstoreNode = TR::Node::create(insertionPoint->getNode(), TR::vstore, 1);
+   TR::DataType vectorType = OMR::DataType(scalarDataType).scalarToVector(TR::VectorLength128);
+   TR::ILOpCode store = TR::ILOpCode::createVectorOpCode(OMR::vstore, vectorType).getOpCodeValue();
+   TR::Node *vstoreNode = TR::Node::create(insertionPoint->getNode(), store.getOpCodeValue(), 1);
    vstoreNode->setAndIncChild(0, splatsNode);
    vstoreNode->setSymbolReference(vecSymRef);
 
@@ -1371,7 +1381,11 @@ bool TR_SPMDKernelParallelizer::reductionLoopExitProcessing(TR::Compilation *com
 
       //read each element from the vector and perform the reduction operation to combine them
       //only add and mult are supported right now
-      TR::Node *loadVectorNode = TR::Node::create(insertionPoint->getNode(), TR::vload, 0);
+
+      TR::DataType vectorType = OMR::DataType(insertionPoint->getNode()->getDataType()).scalarToVector(TR::VectorLength128);
+      TR::ILOpCode load = TR::ILOpCode::createVectorOpCode(OMR::vload, vectorType).getOpCodeValue();
+
+      TR::Node *loadVectorNode = TR::Node::create(insertionPoint->getNode(), load.getOpCodeValue(), 0);
       loadVectorNode->setSymbolReference(vecSymRef);
 
       TR::Node* topNode = TR::Node::createWithSymRef(insertionPoint->getNode(), loadOp, 0, symRef);
