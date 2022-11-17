@@ -396,15 +396,15 @@ ifdef({METHOD_INVOCATION},{
 
 	dnl save ZMM registers
 	LABEL(L_zmm_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 5, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
+	dnl forloop({REG_CTR}, 0, 5, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
 	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	jnz LABEL(L_avx_512bw_save{}SYM_COUNT)
 
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	LABEL(L_avx_512bw_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	dnl save XMM registers
@@ -446,15 +446,15 @@ ifdef({METHOD_INVOCATION},{
 
 	dnl restore ZMM registers
 	LABEL(L_zmm_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 5, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
+	dnl forloop({REG_CTR}, 0, 5, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
 	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	jnz LABEL(L_avx_512bw_restore{}SYM_COUNT)
 
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
+	dnl forloop({REG_CTR}, 0, 7, {RESTORE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
 	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
 
 	LABEL(L_avx_512bw_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl forloop({REG_CTR}, 0, 7, {RESTORE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
 	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
 
 	dnl restore XMM registers
@@ -550,15 +550,15 @@ ifdef({METHOD_INVOCATION},{
 
 	dnl save ZMM registers
 	LABEL(L_zmm_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 31, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
+	dnl forloop({REG_CTR}, 0, 31, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
 	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	jnz LABEL(L_avx_512bw_save{}SYM_COUNT)
 
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	LABEL(L_avx_512bw_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	dnl save XMM registers
@@ -613,7 +613,7 @@ ifdef({METHOD_INVOCATION},{
 
 	dnl restore ZMM registers
 	LABEL(L_zmm_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 31, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
+	dnl forloop({REG_CTR}, 0, 31, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
 	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	jnz LABEL(L_avx_512bw_restore{}SYM_COUNT)
 
@@ -731,15 +731,15 @@ dnl No FP parameter registers
 
 	dnl save ZMM registers
 	LABEL(L_zmm_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
 	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	jnz LABEL(L_avx_512bw_save{}SYM_COUNT)
 
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	LABEL(L_avx_512bw_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	dnl save XMM registers
@@ -777,7 +777,7 @@ dnl No FP parameter registers
 
 	dnl restore ZMM registers
 	LABEL(L_zmm_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
+	dnl forloop({REG_CTR}, 0, 7, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
 	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	jnz LABEL(L_avx_512bw_restore{}SYM_COUNT)
 
