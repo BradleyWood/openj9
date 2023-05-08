@@ -2020,6 +2020,37 @@ J9::CodeGenerator::doInstructionSelection()
             }
          }
 
+      TR::Block *block = self()->getCurrentEvaluationBlock();
+      if (block && block->getLocalRefUseMap() && self()->comp()->getOption(TR_EnableAggressiveLiveness))
+         {
+         TR_BitVector *exitLocals = self()->getCurrentEvaluationBlock()->getLiveOnExitLocals();
+         TR_BitVector *localsOfInterest = new (self()->trStackMemory()) TR_BitVector(*liveLocals);
+         *localsOfInterest -= *exitLocals;
+         // Locals of interest are ones that are not live on exit
+         // If a local is not live on exit, and its last use is beyond this point, we can mark it dead
+
+         TR_HashTabInt *map = block->getLocalRefUseMap();
+         TR_BitVectorIterator bvi(*localsOfInterest);
+         while (bvi.hasMoreElements())
+            {
+            int32_t liveLocalIndex = bvi.getNextElement();
+
+            printf("We found a local that might be dead after this point; block=%d, local=%d\n", block->getNumber(), liveLocalIndex);
+            TR_HashId hashId = 0;
+            printf("map=%p\n", map);
+            if (map->locate(liveLocalIndex, hashId))
+               {
+               TR::TreeTop *ttNode = static_cast<TR::TreeTop*>(map->getData(hashId));
+               printf("We found the local in the blocks local use map; tt=%d", tt->getNode()->getLocalIndex());
+               // If this local is not used after this point in the block, mark it as dead
+               // However, this code seems to be dead, which I think implies that all locals in map
+               // are live on exit
+               TR_ASSERT_FATAL(false, "We found a local of interest that is still live");
+               }
+            }
+         }
+
+
       self()->setLiveLocals(liveLocals);
       self()->setLiveMonitors(liveMonitors);
 
