@@ -388,27 +388,11 @@ ifdef({METHOD_INVOCATION},{
 	movq qword ptr J9TR_cframe_jitFPRs+(5*8)[_rsp],xmm5
 },{ dnl METHOD_INVOCATION
 	mov r8,J9TR_VMThread_javaVM[J9VMTHREAD]
-	mov r8d,J9TR_JavaVM_extendedRuntimeFlags[r8]
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
-	jnz LABEL(L_zmm_save{}SYM_COUNT)
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
+	mov eax,J9TR_JavaVM_extendedRuntimeFlags[r8]
+	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS + J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
 	jz LABEL(L_xmm_save{}SYM_COUNT)
-
-	dnl save YMM registers
-	forloop({REG_CTR}, 0, 5, {vmovdqu ymmword ptr J9TR_cframe_jitFPRs+(REG_CTR*32)[_rsp],ymm{}REG_CTR})
-	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
-
-	dnl save ZMM registers
-	LABEL(L_zmm_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 5, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
-	jnz LABEL(L_avx_512bw_save{}SYM_COUNT)
-
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
-	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
-
-	LABEL(L_avx_512bw_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl save YMM/ZMM registers
+	call GLOBAL_SYMBOL(jitSaveVectorRegisters)
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	dnl save XMM registers
@@ -438,29 +422,12 @@ ifdef({METHOD_INVOCATION},{
 	dnl J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS marks if we are using AVX-512 (eg ZMM)
 	dnl No flags means normal SSE registers (XMM)
 	mov r8,J9TR_VMThread_javaVM[J9VMTHREAD]
-	mov r8d,J9TR_JavaVM_extendedRuntimeFlags[r8]
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
-	jnz LABEL(L_zmm_restore{}SYM_COUNT)
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
+	mov eax,J9TR_JavaVM_extendedRuntimeFlags[r8]
+	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS + J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
 	jz LABEL(L_xmm_restore{}SYM_COUNT)
-
-	dnl restore YMM registers
-	forloop({REG_CTR}, 0, 5, {vmovdqu ymm{}REG_CTR,ymmword ptr J9TR_cframe_jitFPRs+(REG_CTR*32)[_rsp]})
+	dnl restore YMM/ZMM registers
+	call GLOBAL_SYMBOL(jitRestoreVectorRegisters)
 	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
-	dnl restore ZMM registers
-	LABEL(L_zmm_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 5, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
-	jnz LABEL(L_avx_512bw_restore{}SYM_COUNT)
-
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
-	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
-	LABEL(L_avx_512bw_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
-	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
 
 	dnl restore XMM registers
 	LABEL(L_xmm_restore{}SYM_COUNT):
@@ -543,27 +510,11 @@ ifdef({METHOD_INVOCATION},{
 	dnl J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS marks if we are using AVX-512 (eg ZMM)
 	dnl No flags means normal SSE registers (XMM)
 	mov r8,J9TR_VMThread_javaVM[J9VMTHREAD]
-	mov r8d,J9TR_JavaVM_extendedRuntimeFlags[r8]
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
-	jnz LABEL(L_zmm_save{}SYM_COUNT)
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
+	mov eax,J9TR_JavaVM_extendedRuntimeFlags[r8]
+	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS + J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
 	jz LABEL(L_xmm_save{}SYM_COUNT)
-
-	dnl save YMM registers
-	forloop({REG_CTR}, 0, 15, {vmovdqu ymmword ptr J9TR_cframe_jitFPRs+(REG_CTR*32)[_rsp],ymm{}REG_CTR})
-	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
-
-	dnl save ZMM registers
-	LABEL(L_zmm_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 31, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
-	jnz LABEL(L_avx_512bw_save{}SYM_COUNT)
-
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
-	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
-
-	LABEL(L_avx_512bw_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl save YMM/ZMM registers
+	call GLOBAL_SYMBOL(jitSaveVectorRegisters)
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	dnl save XMM registers
@@ -606,27 +557,11 @@ ifdef({METHOD_INVOCATION},{
 	dnl J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS marks if we are using AVX-512 (eg ZMM)
 	dnl No flags means normal SSE registers (XMM)
 	mov r8,J9TR_VMThread_javaVM[J9VMTHREAD]
-	mov r8d,J9TR_JavaVM_extendedRuntimeFlags[r8]
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
-	jnz LABEL(L_zmm_restore{}SYM_COUNT)
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
+	mov eax,J9TR_JavaVM_extendedRuntimeFlags[r8]
+	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS + J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
 	jz LABEL(L_xmm_restore{}SYM_COUNT)
-
-	dnl restore YMM registers
-	forloop({REG_CTR}, 0, 15, {vmovdqu ymm{}REG_CTR,ymmword ptr J9TR_cframe_jitFPRs+(REG_CTR*32)[_rsp]})
-	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
-	dnl restore ZMM registers
-	LABEL(L_zmm_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 31, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
-	test r8d,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
-	jnz LABEL(L_avx_512bw_restore{}SYM_COUNT)
-
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
-	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
-	LABEL(L_avx_512bw_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl restore YMM/ZMM registers
+	call GLOBAL_SYMBOL(jitRestoreVectorRegisters)
 	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
 
 	dnl restore XMM registers
@@ -725,26 +660,10 @@ dnl No FP parameter registers
 },{ dnl METHOD_INVOCATION
 	mov eax,dword ptr J9TR_VMThread_javaVM[J9VMTHREAD]
 	mov eax,dword ptr J9TR_JavaVM_extendedRuntimeFlags[eax]
-	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
-	jnz LABEL(L_zmm_save{}SYM_COUNT)
-	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
+	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS + J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
 	jz LABEL(L_xmm_save{}SYM_COUNT)
-
-	dnl save YMM registers
-	forloop({REG_CTR}, 0, 7, {vmovdqu ymmword ptr J9TR_cframe_jitFPRs+(REG_CTR*32)[_rsp],ymm{}REG_CTR})
-	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
-
-	dnl save ZMM registers
-	LABEL(L_zmm_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
-	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
-	jnz LABEL(L_avx_512bw_save{}SYM_COUNT)
-
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
-	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
-
-	LABEL(L_avx_512bw_save{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {SAVE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl save YMM/ZMM registers
+	call GLOBAL_SYMBOL(jitSaveVectorRegisters)
 	jmp LABEL(L_save_volatile_done{}SYM_COUNT)
 
 	dnl save XMM registers
@@ -771,26 +690,10 @@ dnl No FP parameter registers
 },{ dnl METHOD_INVOCATION
 	mov eax,dword ptr J9TR_VMThread_javaVM[J9VMTHREAD]
 	mov eax,dword ptr J9TR_JavaVM_extendedRuntimeFlags[eax]
-	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
-	jnz LABEL(L_zmm_restore{}SYM_COUNT)
-	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
+	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS + J9TR_J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
 	jz LABEL(L_xmm_restore{}SYM_COUNT)
-
-	dnl restore YMM registers
-	forloop({REG_CTR}, 0, 7, {vmovdqu ymm{}REG_CTR,ymmword ptr J9TR_cframe_jitFPRs+(REG_CTR*32)[_rsp]})
-	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
-	dnl restore ZMM registers
-	LABEL(L_zmm_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {RESTORE_ZMM_REG(REG_CTR, J9TR_cframe_jitFPRs+(REG_CTR*64))})
-	test eax,J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
-	jnz LABEL(L_avx_512bw_restore{}SYM_COUNT)
-
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_16(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*2))})
-	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
-
-	LABEL(L_avx_512bw_restore{}SYM_COUNT):
-	forloop({REG_CTR}, 0, 7, {RESTORE_MASK_64(REG_CTR, J9TR_cframe_maskRegisters+(REG_CTR*8))})
+	dnl restore YMM/ZMM registers
+	call GLOBAL_SYMBOL(jitRestoreVectorRegisters)
 	jmp LABEL(L_restore_volatile_done{}SYM_COUNT)
 
 	LABEL(L_xmm_restore{}SYM_COUNT):
