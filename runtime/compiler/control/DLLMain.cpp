@@ -357,7 +357,7 @@ IDATA J9VMDllMain(J9JavaVM* vm, IDATA stage, void * reserved)
             /* Platform detection seems difficult at this point.                              */
             {
 #ifdef TR_HOST_X86
-            static char *enableBatchClear = feGetEnv2("TR_EnableBatchClear", (void *)vm);
+            static char *disableBatchClear = feGetEnv2("TR_DisableBatchClear", (void *)vm);
 
 #else //ppc and s390
             static char *disableBatchClear = feGetEnv2("TR_DisableBatchClear", (void *)vm);
@@ -376,7 +376,7 @@ IDATA J9VMDllMain(J9JavaVM* vm, IDATA stage, void * reserved)
             */
             if (
 #ifdef TR_HOST_X86
-                 enableBatchClear
+                 disableBatchClear==0
 #else//ppc and s390
                  disableBatchClear==0
 #ifdef TR_HOST_POWER
