@@ -5218,3 +5218,21 @@ J9::CodeGenerator::stressJitDispatchJ9MethodJ2I()
    static const bool stress = feGetEnv("TR_stressJitDispatchJ9MethodJ2I") != NULL;
    return stress;
    }
+
+bool
+J9::CodeGenerator::getSupportsOpCodeForAutoSIMD(TR::ILOpCode opcode)
+   {
+   switch (opcode.getVectorOperation())
+      {
+      case TR::vshl:
+      case TR::vmshl:
+      case TR::vshr:
+      case TR::vmshr:
+      case TR::vmushr:
+      case TR::vrol:
+      case TR::vmrol:
+         return false;
+      default:
+         return OMR::CodeGeneratorConnector::getSupportsOpCodeForAutoSIMD(opcode);
+      }
+   }

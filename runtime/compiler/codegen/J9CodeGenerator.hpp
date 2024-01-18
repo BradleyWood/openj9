@@ -86,6 +86,8 @@ public:
 
    void lowerDualOperator(TR::Node *parent, int32_t childNumber, TR::TreeTop *treeTop);
 
+   bool getSupportsOpCodeForAutoSIMD(TR::ILOpCode opcode);
+
 public:
 
    bool collectSymRefs(TR::Node *node, TR_BitVector *symRefs, vcount_t secondVisitCount);
