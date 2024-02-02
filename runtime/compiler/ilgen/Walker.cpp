@@ -4974,7 +4974,8 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
    TR::Node * address = pop();
    TR::Node * load, *dummyLoad;
    TR::Node * treeTopNode = 0;
-   TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type): comp()->il.opCodeForIndirectLoad(type);
+   TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForFieldReadBarrier(type): comp()->il.opCodeForFieldLoad(type);
+   TR::ILOpCodes convOp = TR::BadILOp;
    dummyLoad = load = TR::Node::createWithSymRef(op, 1, 1, address, symRef);
 
    if (symRef->isUnresolved())
@@ -5013,6 +5014,19 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
                load = newLoad;
             }
          }
+      }
+   else if (type == TR::Int8)
+      {
+      convOp = TR::b2i;
+      }
+   else if (type == TR::Int16)
+      {
+      convOp = symRefTab()->isStaticTypeChar(symRef) ? TR::su2i : TR::s2i;
+      }
+
+   if (convOp != TR::BadILOp)
+      {
+      load = dummyLoad = TR::Node::create(convOp, 1, load);
       }
 
    static char *disableFinalFieldFoldingInILGen = feGetEnv("TR_DisableFinalFieldFoldingInILGen");
@@ -5449,10 +5463,12 @@ TR_J9ByteCodeIlGenerator::loadStatic(int32_t cpIndex)
          {
          void * staticClass = method()->classOfStatic(cpIndex);
          loadSymbol(TR::loadaddr, symRefTab()->findOrCreateClassSymbol(_methodSymbol, cpIndex, staticClass, true /* cpIndexOfStatic */));
-         load = TR::Node::createWithSymRef(comp()->il.opCodeForDirectReadBarrier(type), 1, pop(), 0, symRef);
+         load = TR::Node::createWithSymRef(comp()->il.opCodeForStaticFieldReadBarrier(type), 1, pop(), 0, symRef);
          }
       else
-         load = TR::Node::createWithSymRef(comp()->il.opCodeForDirectLoad(type), 0, symRef);
+         {
+         load = TR::Node::createWithSymRef(comp()->il.opCodeForStaticFieldLoad(type), 0, symRef);
+         }
 
       TR::Node * treeTopNode = 0;
       if (symRef->isUnresolved())
@@ -5467,6 +5483,20 @@ TR_J9ByteCodeIlGenerator::loadStatic(int32_t cpIndex)
          }
 
       push(load);
+      }
+
+   TR::ILOpCodes convOp = TR::BadILOp;
+
+   if (type == TR::Int8)
+      convOp = TR::b2i;
+   else if (type == TR::Int16)
+      convOp = symRefTab()->isFieldTypeChar(symRef) ? TR::su2i : TR::s2i;
+
+   if (convOp != TR::BadILOp)
+      {
+      TR::Node *value = pop();
+      value = TR::Node::create(convOp, 1, value);
+      push(value);
       }
 
    static char *disableFinalFieldFoldingInILGen = feGetEnv("TR_DisableFinalFieldFoldingInILGen");

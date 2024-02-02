@@ -327,6 +327,21 @@ J9::IL::opCodeForDirectReadBarrier(TR::DataType dt)
    }
 
 TR::ILOpCodes
+J9::IL::opCodeForStaticFieldReadBarrier(TR::DataType dt)
+   {
+   if (dt == TR::Int8)
+      {
+      return TR::brdbar;
+      }
+   else if (dt == TR::Int16)
+      {
+      return TR::srdbar;
+      }
+
+   return OMR::IL::opCodeForDirectReadBarrier(dt);
+   }
+
+TR::ILOpCodes
 J9::IL::opCodeForDirectLoad(TR::DataType dt)
    {
    if (dt == TR::Int8 || dt == TR::Int16)
@@ -340,6 +355,21 @@ J9::IL::opCodeForDirectLoad(TR::DataType dt)
       }
 
    return J9::IL::opCodesForDirectLoad[dt - TR::FirstJ9Type];
+   }
+
+TR::ILOpCodes
+J9::IL::opCodeForStaticFieldLoad(TR::DataType dt)
+   {
+   if (dt == TR::Int8)
+      {
+      return TR::bload;
+      }
+   else if (dt == TR::Int16)
+      {
+      return TR::sload;
+      }
+
+   return J9::IL::opCodeForDirectLoad(dt);
    }
 
 TR::ILOpCodes
@@ -381,6 +411,21 @@ J9::IL::opCodeForIndirectReadBarrier(TR::DataType dt)
    }
 
 TR::ILOpCodes
+J9::IL::opCodeForFieldReadBarrier(TR::DataType dt)
+   {
+   if (dt == TR::Int8)
+      {
+      return TR::brdbari;
+      }
+   else if (dt == TR::Int16)
+      {
+      return TR::srdbari;
+      }
+
+   return OMR::IL::opCodeForIndirectReadBarrier(dt);
+   }
+
+TR::ILOpCodes
 J9::IL::opCodeForIndirectLoad(TR::DataType dt)
    {
    if (dt == TR::Int8 || dt == TR::Int16)
@@ -394,6 +439,20 @@ J9::IL::opCodeForIndirectLoad(TR::DataType dt)
       }
 
    return J9::IL::opCodesForIndirectLoad[dt - TR::FirstJ9Type];
+   }
+
+TR::ILOpCodes
+J9::IL::opCodeForFieldLoad(TR::DataType dt)
+   {
+   if (dt == TR::Int8)
+      {
+      return TR::bloadi;
+      }
+   else if (dt == TR::Int16)
+      {
+      return TR::sloadi;
+      }
+   return J9::IL::opCodeForIndirectLoad(dt);
    }
 
 TR::ILOpCodes
