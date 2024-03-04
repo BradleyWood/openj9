@@ -55,14 +55,7 @@ protected:
 
 public:
 
-   /** 
-    * @brief A factory method used to construct a CPU object based on the underlying hardware
-    * @param[in] omrPortLib : the port library
-    * @return TR::CPU
-    */
-   static TR::CPU detect(OMRPortLibrary * const omrPortLib);
-
-   /** 
+   /**
     * @brief A factory method used to construct a CPU object based on user customized processorDescription
     * @param[in] OMRProcessorDesc : the processor description
     * @return TR::CPU
@@ -75,8 +68,6 @@ public:
     */
    static void enableFeatureMasks();
 
-   bool supportsFeature(uint32_t feature);
-   
    const char *getProcessorVendorId();
    uint32_t getProcessorSignature();
    };

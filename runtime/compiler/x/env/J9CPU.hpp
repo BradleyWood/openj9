@@ -59,14 +59,7 @@ public:
     */
    static TR::CPU detectRelocatable(OMRPortLibrary * const omrPortLib);
 
-   /**
-    * @brief Intialize _supportedFeatureMasks to the list of processor features that will be exploited by the compiler and set _isSupportedFeatureMasksEnabled to true
-    * @return void
-    */
-   static void enableFeatureMasks();
-
    bool is(OMRProcessorArchitecture p);
-   bool supportsFeature(uint32_t feature);
 
    TR_X86CPUIDBuffer *queryX86TargetCPUID();
    const char * getProcessorVendorId();

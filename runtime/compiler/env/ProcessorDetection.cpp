@@ -331,16 +331,6 @@ TR_J9VM::initializeProcessorType()
       }
    else if (TR::Compiler->target.cpu.isX86())
       {
-      OMRProcessorDesc processorDescription = TR::Compiler->target.cpu.getProcessorDescription();
-      OMRPORT_ACCESS_FROM_OMRPORT(TR::Compiler->omrPortLib);
-      static const bool disableAVX = feGetEnv("TR_DisableAVX") != NULL;
-      if (disableAVX)
-         {
-         omrsysinfo_processor_set_feature(&processorDescription, OMR_FEATURE_X86_OSXSAVE, FALSE);
-         }
-      
-      TR::Compiler->target.cpu = TR::CPU::customize(processorDescription);
-
       const char *vendor = TR::Compiler->target.cpu.getProcessorVendorId();
       uint32_t processorSignature = TR::Compiler->target.cpu.getProcessorSignature();
 
