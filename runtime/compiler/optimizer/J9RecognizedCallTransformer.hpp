@@ -321,6 +321,27 @@ class RecognizedCallTransformer : public OMR::RecognizedCallTransformer
    void process_java_lang_invoke_MethodHandle_linkToInterface(TR::TreeTop * treetop, TR::Node * node);
 
    /** \brief
+    *     Transforms java/lang/MethodHandle.linkToInterface when the MemberName object (last arg) is not a known object.
+    *
+    *     linkToInterface is a VM INL call that would construct the call frame for the target method invocation.
+    *     This would be the case even if the method to be invoked is compiled, resulting in j2i and i2j transitions.
+    *     This transformation creates an interface dispatch to find the vtable offset and then uses it to do a computed
+    *     virtual call (represented by JITHelpers.dispatchVirtual).
+    *
+    *     linkToInterface only needs to handle regular interface dispatch. Directly-dispatched methods (e.g. private
+    *     interface instance methods, final methods of Object) will be handled by linkToSpecial(). Non-interface
+    *     virtual methods (e.g. non-final methods of Object) will be handled by linkToVirtual().
+    *
+    *  \param treetop
+    *     the TreeTop anchoring the call node
+    *
+    *  \param node
+    *     the call node representing the linkToInterface call
+    */
+   void process_java_util_Arrays_CopyOf(TR::TreeTop * treetop, TR::Node * node);
+   void process_java_util_Arrays_CopyOfRange(TR::TreeTop * treetop, TR::Node * node);
+
+   /** \brief
     *     Transforms \p node into a call to \c JITHelpers.dispatchVirtual(), calling the method whose (interpreter)
     *     vTable offset is the result \p vftOffset.
     *

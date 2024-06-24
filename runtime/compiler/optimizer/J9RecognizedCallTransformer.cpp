@@ -1202,6 +1202,40 @@ void J9::RecognizedCallTransformer::process_java_lang_invoke_MethodHandle_linkTo
    }
 #endif // J9VM_OPT_OPENJDK_METHODHANDLE
 
+void J9::RecognizedCallTransformer::process_java_util_Arrays_CopyOf(TR::TreeTop * treetop, TR::Node * node)
+   {
+   // static <T,U> T[] copyOf(U[] original, int newLength, Class< ? extends T[]> newType)
+
+   TR::Node *originalObjNode = node->getChild(0);
+   TR::Node *newLenNode = node->getChild(1);
+   TR::Node *typeNode = node->getChild(2);
+
+   // Exclude from build to prevent crash
+   if (!feGetEnv("TR_Exclude"))
+      {
+      TR::SymbolReference *symRef = comp()->getSymRefTab()->findOrCreateANewArraySymbolRef(
+            node->getSymbolReference()->getOwningMethodSymbol(comp()));
+
+      typeNode->setSymbolReference(TR::comp()->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef());
+      TR::Node::recreateWithoutProperties(node, TR::anewarray, 2, newLenNode, typeNode, symRef);
+
+      TR::Node *newArray = node;
+      TR::Node *zeroNode = TR::Node::iconst(0);
+      TR::Node *copySizeNode = TR::Node::create(TR::imin, 2, TR::Node::create(TR::arraylength, 1, originalObjNode), newLenNode);
+      TR::Node *arraycopy = TR::Node::createArraycopy(originalObjNode, newArray, zeroNode, zeroNode, copySizeNode);
+      arraycopy->setArrayCopyElementType(TR::Address);
+
+      TR::Node *typeNullCheck = TR::Node::createWithSymRef(TR::NULLCHK, 1, 1, typeNode, TR::comp()->getSymRefTab()->findOrCreateNullCheckSymbolRef(comp()->getMethodSymbol()));
+      treetop->insertBefore(TR::TreeTop::create(comp(), TR::Node::create(node, TR::treetop, 1, typeNullCheck)));
+      treetop->insertBefore(TR::TreeTop::create(comp(), TR::Node::create(node, TR::treetop, 1, arraycopy)));
+      traceMsg(comp(), "Transforming Arrays.copyOf\n");
+
+      originalObjNode->recursivelyDecReferenceCount();
+      newLenNode->recursivelyDecReferenceCount();
+      typeNode->recursivelyDecReferenceCount();
+      }
+   }
+
 bool J9::RecognizedCallTransformer::isInlineable(TR::TreeTop* treetop)
    {
    auto node = treetop->getNode()->getFirstChild();
@@ -1275,6 +1309,9 @@ bool J9::RecognizedCallTransformer::isInlineable(TR::TreeTop* treetop)
             return comp()->cg()->getSupportsInlineEncodeASCII();
          case TR::jdk_internal_util_ArraysSupport_vectorizedMismatch:
             return comp()->cg()->getSupportsInlineVectorizedMismatch();
+         case TR::java_util_Arrays_copyOf_Object2:
+            return true;
+            break;
          default:
             return false;
          }
@@ -1412,6 +1449,9 @@ void J9::RecognizedCallTransformer::transform(TR::TreeTop* treetop)
             break;
          case TR::jdk_internal_util_ArraysSupport_vectorizedMismatch:
             process_jdk_internal_util_ArraysSupport_vectorizedMismatch(treetop, node);
+            break;
+         case TR::java_util_Arrays_copyOf_Object2:
+            process_java_util_Arrays_CopyOf(treetop, node);
             break;
          default:
             break;
