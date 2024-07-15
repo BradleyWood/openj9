@@ -139,12 +139,6 @@ J9::X86::CPU::isCompatible(const OMRProcessorDesc& processorDescription)
 bool
 J9::X86::CPU::is(OMRProcessorArchitecture p)
    {
-   static bool disableCPUDetectionTest = feGetEnv("TR_DisableCPUDetectionTest");
-   if (!disableCPUDetectionTest)
-      {
-      TR_ASSERT_FATAL(self()->is_test(p), "Old API and new API did not match: processor type %d\n", p);
-      }
-
    return _processorDescription.processor == p;
    }
 
@@ -152,13 +146,6 @@ bool
 J9::X86::CPU::supportsFeature(uint32_t feature)
    {
    OMRPORT_ACCESS_FROM_OMRPORT(TR::Compiler->omrPortLib);
-
-   static bool disableCPUDetectionTest = feGetEnv("TR_DisableCPUDetectionTest");
-   if (!disableCPUDetectionTest)
-      {
-      TR_ASSERT_FATAL(self()->supports_feature_test(feature), "Old API and new API did not match: processor feature %d\n", feature);
-      TR_ASSERT_FATAL(TRUE == omrsysinfo_processor_has_feature(&_supportedFeatureMasks, feature), "New processor feature usage detected, please add feature %d to _supportedFeatureMasks via TR::CPU::enableFeatureMasks()\n", feature);
-      }
 
    return TRUE == omrsysinfo_processor_has_feature(&_processorDescription, feature);
    }
@@ -212,157 +199,5 @@ J9::X86::CPU::is_test(OMRProcessorArchitecture p)
    if (TR::comp()->compileRelocatableCode() || TR::comp()->compilePortableCode())
       return true;
 
-   switch(p)
-      {
-      case OMR_PROCESSOR_X86_INTEL_WESTMERE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelWestmere() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_NEHALEM:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelNehalem() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_PENTIUM:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelPentium() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_P6:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelP6() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_PENTIUM4:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelPentium4() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_CORE2:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelCore2() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_TULSA:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelTulsa() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_SANDYBRIDGE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelSandyBridge() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_IVYBRIDGE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelIvyBridge() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_HASWELL:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelHaswell() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_BROADWELL:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelBroadwell() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_SKYLAKE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelSkylake() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_CASCADELAKE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelCascadeLake() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_COOPERLAKE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelCooperLake() == (_processorDescription.processor == p);
-     case OMR_PROCESSOR_X86_INTEL_ICELAKE:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelIceLake() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_SAPPHIRERAPIDS:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelSapphireRapids() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_INTEL_EMERALDRAPIDS:
-         return TR::CodeGenerator::getX86ProcessorInfo().isIntelEmeraldRapids() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_AMD_ATHLONDURON:
-         return TR::CodeGenerator::getX86ProcessorInfo().isAMDAthlonDuron() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_AMD_OPTERON:
-         return TR::CodeGenerator::getX86ProcessorInfo().isAMDOpteron() == (_processorDescription.processor == p);
-      case OMR_PROCESSOR_X86_AMD_FAMILY15H:
-         return TR::CodeGenerator::getX86ProcessorInfo().isAMD15h() == (_processorDescription.processor == p);
-      default:
-         return false;
-      }
-   return false;
+   return _processorDescription.processor == p;
    }
-
-bool
-J9::X86::CPU::supports_feature_test(uint32_t feature)
-   {
-#if defined(J9VM_OPT_JITSERVER)
-   if (TR::CompilationInfo::getStream())
-      return true;
-#endif /* defined(J9VM_OPT_JITSERVER) */
-   if (TR::comp()->compileRelocatableCode() || TR::comp()->compilePortableCode())
-      return true;
-
-   OMRPORT_ACCESS_FROM_OMRPORT(TR::Compiler->omrPortLib);
-   bool ans = (TRUE == omrsysinfo_processor_has_feature(&_processorDescription, feature));
-
-   switch(feature)
-      {
-      case OMR_FEATURE_X86_OSXSAVE:
-         return TR::CodeGenerator::getX86ProcessorInfo().enabledXSAVE() == ans;
-      case OMR_FEATURE_X86_FPU:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasBuiltInFPU() == ans;
-      case OMR_FEATURE_X86_VME:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsVirtualModeExtension() == ans;
-      case OMR_FEATURE_X86_DE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsDebuggingExtension() == ans;
-      case OMR_FEATURE_X86_PSE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsPageSizeExtension() == ans;
-      case OMR_FEATURE_X86_TSC:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsRDTSCInstruction() == ans;
-      case OMR_FEATURE_X86_MSR:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasModelSpecificRegisters() == ans;
-      case OMR_FEATURE_X86_PAE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsPhysicalAddressExtension() == ans;
-      case OMR_FEATURE_X86_MCE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsMachineCheckException() == ans;
-      case OMR_FEATURE_X86_CX8:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsCMPXCHG8BInstruction() == ans;
-      case OMR_FEATURE_X86_CMPXCHG16B:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsCMPXCHG16BInstruction() == ans;
-      case OMR_FEATURE_X86_APIC:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasAPICHardware() == ans;
-      case OMR_FEATURE_X86_MTRR:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasMemoryTypeRangeRegisters() == ans;
-      case OMR_FEATURE_X86_PGE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsPageGlobalFlag() == ans;
-      case OMR_FEATURE_X86_MCA:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasMachineCheckArchitecture() == ans;
-      case OMR_FEATURE_X86_CMOV:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsCMOVInstructions() == ans;
-      case OMR_FEATURE_X86_PAT:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasPageAttributeTable() == ans;
-      case OMR_FEATURE_X86_PSE_36:
-         return TR::CodeGenerator::getX86ProcessorInfo().has36BitPageSizeExtension() == ans;
-      case OMR_FEATURE_X86_PSN:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasProcessorSerialNumber() == ans;
-      case OMR_FEATURE_X86_CLFSH:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsCLFLUSHInstruction() == ans;
-      case OMR_FEATURE_X86_DS:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsDebugTraceStore() == ans;
-      case OMR_FEATURE_X86_ACPI:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasACPIRegisters() == ans;
-      case OMR_FEATURE_X86_MMX:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsMMXInstructions() == ans;
-      case OMR_FEATURE_X86_FXSR:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsFastFPSavesRestores() == ans;
-      case OMR_FEATURE_X86_SSE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSSE() == ans;
-      case OMR_FEATURE_X86_SSE2:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSSE2() == ans;
-      case OMR_FEATURE_X86_SSE3:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSSE3() == ans;
-      case OMR_FEATURE_X86_SSSE3:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSSSE3() == ans;
-      case OMR_FEATURE_X86_SSE4_1:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSSE4_1() == ans;
-      case OMR_FEATURE_X86_SSE4_2:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSSE4_2() == ans;
-      case OMR_FEATURE_X86_PCLMULQDQ:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsCLMUL() == ans;
-      case OMR_FEATURE_X86_AESNI:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsAESNI() == ans;
-      case OMR_FEATURE_X86_POPCNT:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsPOPCNT() == ans;
-      case OMR_FEATURE_X86_SS:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsSelfSnoop() == ans;
-      case OMR_FEATURE_X86_RTM:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsTM() == ans;
-      case OMR_FEATURE_X86_HTT:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsHyperThreading() == ans;
-      case OMR_FEATURE_X86_HLE:
-         return TR::CodeGenerator::getX86ProcessorInfo().supportsHLE() == ans;
-      case OMR_FEATURE_X86_TM:
-         return TR::CodeGenerator::getX86ProcessorInfo().hasThermalMonitor() == ans;
-      case OMR_FEATURE_X86_AVX:
-      case OMR_FEATURE_X86_AVX2:
-      case OMR_FEATURE_X86_AVX512F:
-      case OMR_FEATURE_X86_AVX512VL:
-      case OMR_FEATURE_X86_AVX512BW:
-      case OMR_FEATURE_X86_AVX512DQ:
-      case OMR_FEATURE_X86_AVX512CD:
-      case OMR_FEATURE_X86_FMA:
-         return true;
-      default:
-         return false;
-      }
-   return false;
-   }
-
