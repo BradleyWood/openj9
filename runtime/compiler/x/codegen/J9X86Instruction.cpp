@@ -92,7 +92,7 @@ uint8_t *TR::X86MemImmSnippetInstruction::generateBinaryEncoding()
 
    setBinaryEncoding(instructionStart);
 
-   cursor = getOpCode().binary(cursor, OMR::X86::Default, rexBits());
+   cursor = getOpCode().binary(cursor, OMR::X86::Default, rexBits(), cg());
    cursor = getMemoryReference()->generateBinaryEncoding(cursor - 1, this, cg());
    if (cursor)
       {

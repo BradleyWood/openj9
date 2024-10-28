@@ -109,7 +109,7 @@ J9::X86::UnresolvedDataSnippet::emitSnippetBody()
 
    if (!stackMapInstr)
       {
-      return TR::InstOpCode(TR::InstOpCode::bad).binary(cursor, OMR::X86::Default);
+      return TR::InstOpCode(TR::InstOpCode::bad).binary(cursor, OMR::X86::Default, 0, cg());
       }
 
    _glueSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(getHelper());
