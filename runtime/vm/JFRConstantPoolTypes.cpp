@@ -50,7 +50,7 @@ VM_JFRConstantPoolTypes::jfrPackageHashFn(void *key, void *userData)
 {
 	PackageEntry *packageEntry = (PackageEntry *) key;
 
-	return *(UDATA*)&packageEntry->pkgID;
+	return *(UDATA*)&packageEntry->romClass;
 }
 
 UDATA
@@ -59,7 +59,7 @@ VM_JFRConstantPoolTypes::jfrPackageHashEqualFn(void *tableNode, void *queryNode,
 	PackageEntry *tableEntry = (PackageEntry *) tableNode;
 	PackageEntry *queryEntry = (PackageEntry *) queryNode;
 
-	return tableEntry->pkgID == queryEntry->pkgID;
+	return tableEntry->romClass == queryEntry->romClass;
 }
 
 UDATA
@@ -308,15 +308,26 @@ VM_JFRConstantPoolTypes::walkStackTraceTablePrint(void *entry, void *userData)
 	return FALSE;
 }
 
+
 UDATA
-VM_JFRConstantPoolTypes::fixupShallowEntries(void *entry, void *userData)
+VM_JFRConstantPoolTypes::findShallowEntries(void *entry, void *userData)
 {
 	ClassEntry *tableEntry = (ClassEntry *) entry;
+	J9Pool *shallowEntries = (J9Pool*) userData;
+
+	ClassEntry **newEntry = (ClassEntry**)pool_newElement(shallowEntries);
+	*newEntry = tableEntry;
+
+	return FALSE;
+}
+
+void
+VM_JFRConstantPoolTypes::fixupShallowEntries(void *entry, void *userData)
+{
+	ClassEntry *tableEntry = *(ClassEntry **) entry;
 	VM_JFRConstantPoolTypes *cp = (VM_JFRConstantPoolTypes*) userData;
 
 	cp->getClassEntry(tableEntry->clazz);
-
-	return FALSE;
 }
 
 UDATA
@@ -335,11 +346,9 @@ VM_JFRConstantPoolTypes::mergePackageEntriesToGlobalTable(void *entry, void *use
 {
 	PackageEntry *tableEntry = (PackageEntry *) entry;
 	VM_JFRConstantPoolTypes *cp = (VM_JFRConstantPoolTypes*) userData;
-	UDATA packageNameLength = 0;
 
-	getPackageName(tableEntry->pkgID, &packageNameLength);
 	cp->_globalStringTable[tableEntry->index + cp->_stringUTF8Count] = tableEntry;
-	cp->_requiredBufferSize += packageNameLength;
+	cp->_requiredBufferSize += tableEntry->packageNameLength;
 	return FALSE;
 }
 
@@ -472,7 +481,8 @@ VM_JFRConstantPoolTypes::addPackageEntry(J9Class *clazz)
 	_buildResult = OK;
 
 	pkgID = hashPkgTableAt(clazz->classLoader, clazz->romClass);
-	entry->pkgID = pkgID;
+	entry->romClass = clazz->romClass;
+	entry->ramClass = clazz;
 
 	if (NULL == pkgID) {
 		/* default pacakge */
@@ -491,7 +501,7 @@ VM_JFRConstantPoolTypes::addPackageEntry(J9Class *clazz)
 	entry->moduleIndex = addModuleEntry(clazz->module);
 	if (isResultNotOKay()) goto done;
 
-	packageName = (const char *) getPackageName(entry->pkgID, &packageNameLength);
+	packageName = (const char *) getPackageName(pkgID, &packageNameLength);
 	if (NULL == packageName) {
 		_buildResult = InternalVMError;
 		goto done;
@@ -764,6 +774,7 @@ VM_JFRConstantPoolTypes::addThreadEntry(J9VMThread *vmThread)
 	entry->vmThread = vmThread;
 	_buildResult = OK;
 	omrthread_t osThread = vmThread->osThread;
+	j9object_t threadObject = vmThread->threadObject;
 
 	entry = (ThreadEntry *) hashTableFind(_threadTable, entry);
 	if (NULL != entry) {
@@ -774,19 +785,22 @@ VM_JFRConstantPoolTypes::addThreadEntry(J9VMThread *vmThread)
 	}
 
 	entry->osTID = ((J9AbstractThread*)osThread)->tid;
-	entry->javaTID = J9VMJAVALANGTHREAD_TID(_currentThread, vmThread->threadObject);
+	if (NULL != threadObject) {
+		entry->javaTID = J9VMJAVALANGTHREAD_TID(_currentThread, threadObject);
 
-	entry->javaThreadName = copyStringToJ9UTF8WithMemAlloc(_currentThread, J9VMJAVALANGTHREAD_NAME(_currentThread, vmThread->threadObject), J9_STR_NONE, "", 0, NULL, 0);
+		entry->javaThreadName = copyStringToJ9UTF8WithMemAlloc(_currentThread, J9VMJAVALANGTHREAD_NAME(_currentThread, threadObject), J9_STR_NONE, "", 0, NULL, 0);
+
+		if (isResultNotOKay()) goto done;
+#if JAVA_SPEC_VERSION >= 19
+		entry->threadGroupIndex = addThreadGroupEntry(J9VMJAVALANGTHREADFIELDHOLDER_GROUP(_currentThread, (J9VMJAVALANGTHREAD_HOLDER(_currentThread, threadObject))));
+#else /* JAVA_SPEC_VERSION >= 19 */
+		entry->threadGroupIndex = addThreadGroupEntry(J9VMJAVALANGTHREAD_GROUP(_currentThread, threadObject));
+#endif /* JAVA_SPEC_VERSION >= 19 */
+		if (isResultNotOKay()) goto done;
+	}
 
 	/* TODO is this always true? */
 	entry->osThreadName = entry->javaThreadName;
-	if (isResultNotOKay()) goto done;
-#if JAVA_SPEC_VERSION >= 19
-	entry->threadGroupIndex = addThreadGroupEntry(J9VMJAVALANGTHREADFIELDHOLDER_GROUP(_currentThread, (J9VMJAVALANGTHREAD_HOLDER(_currentThread, vmThread->threadObject))));
-#else /* JAVA_SPEC_VERSION >= 19 */
-	entry->threadGroupIndex = addThreadGroupEntry(J9VMJAVALANGTHREAD_GROUP(_currentThread, vmThread->threadObject));
-#endif /* JAVA_SPEC_VERSION >= 19 */
-	if (isResultNotOKay()) goto done;
 
 	entry->index = _threadCount;
 	_threadCount++;
@@ -838,6 +852,15 @@ VM_JFRConstantPoolTypes::addThreadGroupEntry(j9object_t threadGroup)
 
 	entry->parentIndex = addThreadGroupEntry(J9VMJAVALANGTHREADGROUP_PARENT(_currentThread, threadGroup));
 	if (isResultNotOKay()) goto done;
+
+	/* Check again to see if the Threadgroup was added recursively. */
+	entry = (ThreadGroupEntry *) hashTableFind(_threadGroupTable, entry);
+	if (NULL != entry) {
+		index = entry->index;
+		goto done;
+	} else {
+		entry = &entryBuffer;
+	}
 
 	entry->name = copyStringToJ9UTF8WithMemAlloc(_currentThread, J9VMJAVALANGTHREADGROUP_NAME(_currentThread, threadGroup), J9_STR_NONE, "", 0, NULL, 0);
 
@@ -970,7 +993,8 @@ VM_JFRConstantPoolTypes::addThreadStartEntry(J9JFRThreadStart *threadStartData)
 	entry->stackTraceIndex = consumeStackTrace(threadStartData->parentThread, J9JFRTHREADSTART_STACKTRACE(threadStartData), threadStartData->stackTraceSize);
 	if (isResultNotOKay()) goto done;
 
-	index = _threadStartCount++;
+	index = _threadStartCount;
+	_threadStartCount += 1;
 
 done:
 	return index;
@@ -995,7 +1019,8 @@ VM_JFRConstantPoolTypes::addThreadEndEntry(J9JFREvent *threadEndData)
 	entry->eventThreadIndex = addThreadEntry(threadEndData->vmThread);
 	if (isResultNotOKay()) goto done;
 
-	index = _threadEndCount++;
+	index = _threadEndCount;
+	_threadEndCount += 1;
 
 done:
 	return index;
@@ -1025,7 +1050,8 @@ VM_JFRConstantPoolTypes::addThreadSleepEntry(J9JFRThreadSlept *threadSleepData)
 	entry->stackTraceIndex = consumeStackTrace(threadSleepData->vmThread, J9JFRTHREADSLEPT_STACKTRACE(threadSleepData), threadSleepData->stackTraceSize);
 	if (isResultNotOKay()) goto done;
 
-	index = _threadEndCount++;
+	index = _threadEndCount;
+	_threadEndCount += 1;
 
 done:
 	return index;
@@ -1062,12 +1088,62 @@ VM_JFRConstantPoolTypes::addMonitorWaitEntry(J9JFRMonitorWaited* threadWaitData)
 
 	entry->notifierThread = 0; //Need a way to find the notifiying thread
 
-	index = _threadEndCount++;
+	index = _threadEndCount;
+	_threadEndCount += 1;
 
 done:
 	return index;
 }
 
+U_32
+VM_JFRConstantPoolTypes::addCPULoadEntry(J9JFRCPULoad *cpuLoadData)
+{
+	CPULoadEntry *entry = (CPULoadEntry *)pool_newElement(_cpuLoadTable);
+	U_32 index = U_32_MAX;
+
+	if (NULL == entry) {
+		_buildResult = OutOfMemory;
+		goto done;
+	}
+
+	entry->ticks = cpuLoadData->startTicks;
+	entry->jvmUser = cpuLoadData->jvmUser;
+	entry->jvmSystem = cpuLoadData->jvmSystem;
+	entry->machineTotal = cpuLoadData->machineTotal;
+
+	index = _cpuLoadCount;
+	_cpuLoadCount += 1;
+
+done:
+	return index;
+}
+
+U_32
+VM_JFRConstantPoolTypes::addThreadCPULoadEntry(J9JFRThreadCPULoad *threadCPULoadData)
+{
+	ThreadCPULoadEntry *entry = (ThreadCPULoadEntry *)pool_newElement(_threadCPULoadTable);
+	U_32 index = U_32_MAX;
+
+	if (NULL == entry) {
+		_buildResult = OutOfMemory;
+		goto done;
+	}
+
+	entry->ticks = threadCPULoadData->startTicks;
+	entry->user = threadCPULoadData->user;
+	entry->system = threadCPULoadData->system;
+
+	entry->threadIndex = addThreadEntry(threadCPULoadData->vmThread);
+	if (isResultNotOKay()) {
+		goto done;
+	}
+
+	index = _threadCPULoadCount;
+	_threadCPULoadCount += 1;
+
+done:
+	return index;
+}
 
 void
 VM_JFRConstantPoolTypes::printTables()

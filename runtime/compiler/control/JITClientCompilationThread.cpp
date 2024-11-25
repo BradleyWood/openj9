@@ -486,6 +486,11 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
          // These offsets are initialized later on
          vmInfo._vmtargetOffset = 0;
          vmInfo._vmindexOffset = 0;
+         auto sharedCacheConfig = fe->sharedCache() ? fe->sharedCache()->sharedCacheConfig() : NULL;
+         if (sharedCacheConfig)
+            vmInfo._shareLambdaForm = J9_ARE_ALL_BITS_SET(sharedCacheConfig->runtimeFlags2, J9SHR_RUNTIMEFLAG2_SHARE_LAMBDAFORM);
+         else
+            vmInfo._shareLambdaForm = false;
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
          }
 
@@ -550,6 +555,16 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
 #else
          vmInfo._isNonPortableRestoreMode = false;
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
+         vmInfo._voidReflectClassPtr = javaVM->voidReflectClass;
+         vmInfo._booleanReflectClassPtr = javaVM->booleanReflectClass;
+         vmInfo._charReflectClassPtr = javaVM->charReflectClass;
+         vmInfo._floatReflectClassPtr = javaVM->floatReflectClass;
+         vmInfo._doubleReflectClassPtr = javaVM->doubleReflectClass;
+         vmInfo._byteReflectClassPtr = javaVM->byteReflectClass;
+         vmInfo._shortReflectClassPtr = javaVM->shortReflectClass;
+         vmInfo._intReflectClassPtr = javaVM->intReflectClass;
+         vmInfo._longReflectClassPtr = javaVM->longReflectClass;
+
          client->write(response, vmInfo, listOfCacheDescriptors, comp->getPersistentInfo()->getJITServerAOTCacheName());
          }
          break;
@@ -1773,6 +1788,8 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
          std::vector<TR_OpaqueMethodBlock *> ramMethods(numMethods);
          std::vector<uint32_t> vTableOffsets(numMethods);
          std::vector<TR_ResolvedJ9JITServerMethodInfo> methodInfos(numMethods);
+         // vector<bool> does not seem to work
+         std::vector<char> unresolvedInCPs(numMethods);
          for (int32_t i = 0; i < numMethods; ++i)
             {
             int32_t cpIndex = cpIndices[i];
@@ -1781,7 +1798,7 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
             TR_OpaqueMethodBlock *ramMethod = NULL;
             uint32_t vTableOffset = 0;
             TR_ResolvedJ9JITServerMethodInfo methodInfo;
-            bool unresolvedInCP = false;
+            bool unresolvedInCP = true;
             switch (type)
                {
                case TR_ResolvedMethodType::VirtualFromCP:
@@ -1819,8 +1836,9 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
             ramMethods[i] = ramMethod;
             vTableOffsets[i] = vTableOffset;
             methodInfos[i] = methodInfo;
+            unresolvedInCPs[i] = unresolvedInCP;
             }
-         client->write(response, ramMethods, vTableOffsets, methodInfos);
+         client->write(response, ramMethods, vTableOffsets, methodInfos, unresolvedInCPs);
          }
          break;
       case MessageType::ResolvedMethod_getConstantDynamicTypeFromCP:
@@ -1913,6 +1931,18 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
          int32_t cpIndex = std::get<1>(recv);
          bool isStatic = std::get<2>(recv);
          client->write(response, mirror->isFieldFlattened(comp, cpIndex, isStatic));
+         }
+         break;
+      case MessageType::ResolvedMethod_getTargetMethodFromMemberName:
+         {
+         auto recv = client->getRecvData<TR_ResolvedJ9Method *, uintptr_t *>();
+         TR_ResolvedJ9Method *owningMethod = std::get<0>(recv);
+         uintptr_t * invokeCacheArray = std::get<1>(recv);
+
+         bool isInvokeCacheAppendixNull = false;
+         TR_OpaqueMethodBlock *targetMethod = owningMethod->getTargetMethodFromMemberName(invokeCacheArray, &isInvokeCacheAppendixNull);
+
+         client->write(response, targetMethod, isInvokeCacheAppendixNull);
          }
          break;
       case MessageType::ResolvedRelocatableMethod_createResolvedRelocatableJ9Method:
@@ -2868,6 +2898,41 @@ handleServerMessage(JITServer::ClientStream *client, TR_J9VM *fe, JITServer::Mes
          client->write(response, knownObjectTableDumpInfoList);
          }
          break;
+      case MessageType::KnownObjectTable_getOpaqueClass:
+         {
+         TR::KnownObjectTable::Index knotIndex =
+            std::get<0>(client->getRecvData<TR::KnownObjectTable::Index>());
+
+         uintptr_t clazz = 0;
+            {
+            TR::VMAccessCriticalSection getJ9ClassFromKnownObjectIndex(fe);
+
+            uintptr_t javaLangClass = knot->getPointer(knotIndex);
+            clazz = (uintptr_t)fe->getInt64Field(javaLangClass, "vmRef");
+            }
+
+         client->write(response, clazz);
+         }
+         break;
+      case MessageType::KnownObjectTable_getVectorBitSize:
+         {
+         TR::KnownObjectTable::Index knotIndex =
+            std::get<0>(client->getRecvData<TR::KnownObjectTable::Index>());
+
+         int32_t vectorBitSize = 0;
+            {
+            TR::VMAccessCriticalSection getVBSFromKnownObjectIndex(fe);
+
+            uintptr_t vectorSpeciesLocation = knot->getPointer(knotIndex);
+            uintptr_t vectorShapeLocation = fe->getReferenceField(vectorSpeciesLocation,
+                                                            "vectorShape",
+                                                            "Ljdk/incubator/vector/VectorShape;");
+            vectorBitSize = fe->getInt32Field(vectorShapeLocation, "vectorBitSize");
+            }
+
+         client->write(response, vectorBitSize);
+         }
+         break;
       case MessageType::AOTCache_getROMClassBatch:
          {
          auto recv = client->getRecvData<std::vector<J9Class *>>();
@@ -3259,6 +3324,15 @@ remoteCompile(J9VMThread *vmThread, TR::Compilation *compiler, TR_ResolvedMethod
                                                          compInfo, uncachedRAMClasses, uncachedClassInfos);
       }
    compiler->setIgnoringLocalSCC(aotCacheStore && compiler->getPersistentInfo()->getJITServerAOTCacheIgnoreLocalSCC());
+
+   // TODO: To support dependency tracking with the JITServer AOT cache while
+   // ignoring the local SCC, we would have to store the dependencies at the
+   // server and detect (with the help of the server's serialization records)
+   // when they were satisfied. More limited support also makes sense when not
+   // ignoring the local SCC - the dependencies would just have to be saved at
+   // the server so they could be sent to and stored by the client.
+   if (aotCacheLoad || aotCacheStore)
+      compiler->setOption(TR_DisableDependencyTracking);
 
    // This thread may have been notified at some point in the past that the deserializer was reset.
    // Since this is the start of a new compilation, we must clear the reset flag in order to detect

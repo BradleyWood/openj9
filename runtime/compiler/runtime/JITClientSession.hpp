@@ -319,6 +319,7 @@ public:
 #if defined(J9VM_OPT_OPENJDK_METHODHANDLE)
       UDATA _vmtargetOffset;
       UDATA _vmindexOffset;
+      bool _shareLambdaForm;
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
       bool _useAOTCache;
       // Should we use server offsets (idAndType of AOT cache serialization records) instead of
@@ -334,6 +335,16 @@ public:
       bool _isPortableRestoreMode;
       bool _isSnapshotModeEnabled;
       bool _isNonPortableRestoreMode;
+      // The reflect class pointers for the server to identify the classes
+      void *_voidReflectClassPtr;
+      void *_booleanReflectClassPtr;
+      void *_charReflectClassPtr;
+      void *_floatReflectClassPtr;
+      void *_doubleReflectClassPtr;
+      void *_byteReflectClassPtr;
+      void *_shortReflectClassPtr;
+      void *_intReflectClassPtr;
+      void *_longReflectClassPtr;
       }; // struct VMInfo
 
    /**

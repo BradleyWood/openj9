@@ -759,6 +759,9 @@ createField(struct J9VMThread *vmThread, jfieldID fieldID)
 	j9object_t fieldObject = NULL;
 	J9Class *jlrFieldClass = J9VMJAVALANGREFLECTFIELD(vmThread->javaVM);
 	UDATA initStatus;
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+	U_32 fieldFlags = 0; /* used to calculate value of Field.flags in value type builds */
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 	if (NULL == jlrFieldClass) {
 		return NULL;
@@ -831,15 +834,26 @@ createField(struct J9VMThread *vmThread, jfieldID fieldID)
 	J9VMJAVALANGREFLECTFIELD_SET_CLAZZ(vmThread, fieldObject, J9VM_J9CLASS_TO_HEAPCLASS(j9FieldID->declaringClass));
 	J9VMJAVALANGREFLECTFIELD_SET_MODIFIERS(vmThread, fieldObject, j9FieldID->field->modifiers & CFR_FIELD_ACCESS_MASK);
 #if JAVA_SPEC_VERSION >= 15
-	/* trust that static final fields and final record or hidden class fields will not be modified. */
+	/* Trust that static final fields and final record or hidden class fields will not be modified. */
 	if (J9_ARE_ALL_BITS_SET(j9FieldID->field->modifiers, J9AccFinal)) {
 		if (J9_ARE_ALL_BITS_SET(j9FieldID->field->modifiers, J9AccStatic)
 			|| J9ROMCLASS_IS_RECORD(j9FieldID->declaringClass->romClass)
 			|| J9ROMCLASS_IS_HIDDEN(j9FieldID->declaringClass->romClass)
 		) {
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+			fieldFlags |= TRUST_FINAL;
+#else /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 			J9VMJAVALANGREFLECTFIELD_SET_TRUSTEDFINAL(vmThread, fieldObject, JNI_TRUE);
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 		}
 	}
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+	if (J9ROMFIELD_IS_NULL_RESTRICTED(j9FieldID->field)) {
+		fieldFlags |= NULL_RESTRICTED;
+	}
+	/* Field is "int flags;" in value types. */
+	J9VMJAVALANGREFLECTFIELD_SET_FLAGS(vmThread, fieldObject, fieldFlags);
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 #endif /* JAVA_SPEC_VERSION >= 15 */
 
 	return fieldObject;

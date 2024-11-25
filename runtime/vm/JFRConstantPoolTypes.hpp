@@ -54,10 +54,10 @@ enum JFRStringConstants {
 };
 
 enum FrameType {
-	Interpreted = 0,
-	JIT,
-	JIT_Inline,
-	Native,
+	Interpreted = J9VM_STACK_FRAME_INTERPRETER,
+	JIT = J9VM_STACK_FRAME_JIT,
+	JIT_Inline = J9VM_STACK_FRAME_JIT_INLINE,
+	Native = J9VM_STACK_FRAME_NATIVE,
 	FrameTypeCount,
 };
 
@@ -87,7 +87,8 @@ struct ClassEntry {
 };
 
 struct PackageEntry {
-	J9PackageIDTableEntry *pkgID;
+	J9ROMClass *romClass;
+	J9Class *ramClass;
 	U_32 moduleIndex;
 	BOOLEAN exported;
 	U_32 packageNameLength;
@@ -212,6 +213,20 @@ struct StackTraceEntry {
 	StackTraceEntry *next;
 };
 
+struct CPULoadEntry {
+	I_64 ticks;
+	float jvmUser;
+	float jvmSystem;
+	float machineTotal;
+};
+
+struct ThreadCPULoadEntry {
+	I_64 ticks;
+	U_32 threadIndex;
+	float user;
+	float system;
+};
+
 struct JVMInformationEntry {
 	const char *jvmName;
 	const char *jvmVersion;
@@ -289,6 +304,10 @@ private:
 	UDATA _threadSleepCount;
 	J9Pool *_monitorWaitTable;
 	UDATA _monitorWaitCount;
+	J9Pool *_cpuLoadTable;
+	UDATA _cpuLoadCount;
+	J9Pool *_threadCPULoadTable;
+	UDATA _threadCPULoadCount;
 
 	/* Processing buffers */
 	StackFrame *_currentStackFrameBuffer;
@@ -388,7 +407,9 @@ private:
 
 	static UDATA walkStackTraceTablePrint(void *entry, void *userData);
 
-	static UDATA fixupShallowEntries(void *entry, void *userData);
+	static UDATA findShallowEntries(void *entry, void *userData);
+
+	static void fixupShallowEntries(void *anElement, void *userData);
 
 	static UDATA walkMethodTablePrint(void *entry, void *userData);
 
@@ -450,7 +471,7 @@ private:
 		return false;
 	}
 
-	static UDATA stackTraceCallback(J9VMThread *vmThread, void *userData, UDATA bytecodeOffset, J9ROMClass *romClass, J9ROMMethod *romMethod, J9UTF8 *fileName, UDATA lineNumber, J9ClassLoader *classLoader, J9Class *ramClass)
+	static UDATA stackTraceCallback(J9VMThread *vmThread, void *userData, UDATA bytecodeOffset, J9ROMClass *romClass, J9ROMMethod *romMethod, J9UTF8 *fileName, UDATA lineNumber, J9ClassLoader *classLoader, J9Class *ramClass, UDATA frameType)
 	{
 		VM_JFRConstantPoolTypes *cp = (VM_JFRConstantPoolTypes*) userData;
 		StackFrame *frame = &cp->_currentStackFrameBuffer[cp->_currentFrameCount];
@@ -535,6 +556,10 @@ public:
 
 	U_32 addMonitorWaitEntry(J9JFRMonitorWaited* threadWaitData);
 
+	U_32 addCPULoadEntry(J9JFRCPULoad *cpuLoadData);
+
+	U_32 addThreadCPULoadEntry(J9JFRThreadCPULoad *threadCPULoadData);
+
 	J9Pool *getExecutionSampleTable()
 	{
 		return _executionSampleTable;
@@ -560,6 +585,16 @@ public:
 		return _monitorWaitTable;
 	}
 
+	J9Pool *getCPULoadTable()
+	{
+		return _cpuLoadTable;
+	}
+
+	J9Pool *getThreadCPULoadTable()
+	{
+		return _threadCPULoadTable;
+	}
+
 	UDATA getExecutionSampleCount()
 	{
 		return _executionSampleCount;
@@ -583,6 +618,16 @@ public:
 	UDATA getMonitorWaitCount()
 	{
 		return _monitorWaitCount;
+	}
+
+	UDATA getCPULoadCount()
+	{
+		return _cpuLoadCount;
+	}
+
+	UDATA getThreadCPULoadCount()
+	{
+		return _threadCPULoadCount;
 	}
 
 	ClassloaderEntry *getClassloaderEntry()
@@ -708,6 +753,7 @@ public:
 	void loadEvents()
 	{
 		J9JFRBufferWalkState walkstate = {0};
+		J9Pool *shallowEntries = NULL;
 		J9JFREvent *event = jfrBufferStartDo(&_vm->jfrBuffer, &walkstate);
 
 		while (NULL != event) {
@@ -727,15 +773,38 @@ public:
 			case J9JFR_EVENT_TYPE_OBJECT_WAIT:
 				addMonitorWaitEntry((J9JFRMonitorWaited*) event);
 				break;
+			case J9JFR_EVENT_TYPE_CPU_LOAD:
+				addCPULoadEntry((J9JFRCPULoad *)event);
+				break;
+			case J9JFR_EVENT_TYPE_THREAD_CPU_LOAD:
+				addThreadCPULoadEntry((J9JFRThreadCPULoad *)event);
+				break;
 			default:
 				Assert_VM_unreachable();
-			break;
+				break;
 			}
 			event = jfrBufferNextDo(&walkstate);
 		}
 
-		hashTableForEachDo(_classTable, &fixupShallowEntries, this);
+		if (isResultNotOKay()) {
+			goto done;
+		}
+
+		shallowEntries = pool_new(sizeof(ClassEntry**), 0, sizeof(U_64), 0, J9_GET_CALLSITE(), OMRMEM_CATEGORY_VM, POOL_FOR_PORT(privatePortLibrary));
+		if (NULL == shallowEntries) {
+			_buildResult = OutOfMemory;
+			goto done;
+		}
+
+		hashTableForEachDo(_classTable, findShallowEntries, shallowEntries);
+		pool_do(shallowEntries, fixupShallowEntries, this);
+
+		pool_kill(shallowEntries);
+
 		mergeStringTables();
+
+done:
+		return;
 	}
 
 	U_32 consumeStackTrace(J9VMThread *walkThread, UDATA *walkStateCache, UDATA numberOfFrames) {
@@ -1029,6 +1098,10 @@ done:
 		, _threadSleepCount(0)
 		, _monitorWaitTable(NULL)
 		, _monitorWaitCount(0)
+		, _cpuLoadTable(NULL)
+		, _cpuLoadCount(0)
+		, _threadCPULoadTable(NULL)
+		, _threadCPULoadCount(0)
 		, _previousStackTraceEntry(NULL)
 		, _firstStackTraceEntry(NULL)
 		, _previousThreadEntry(NULL)
@@ -1047,55 +1120,55 @@ done:
 		, _firstPackageEntry(NULL)
 		, _requiredBufferSize(0)
 	{
-		_classTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ClassEntry), sizeof(ClassEntry *), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, jfrClassHashFn, jfrClassHashEqualFn, NULL, _vm);
+		_classTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ClassEntry), sizeof(ClassEntry *), 0, J9MEM_CATEGORY_CLASSES, jfrClassHashFn, jfrClassHashEqualFn, NULL, _vm);
 		if (NULL == _classTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_packageTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(PackageEntry), sizeof(PackageEntry *), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, jfrPackageHashFn, jfrPackageHashEqualFn, NULL, _vm);
+		_packageTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(PackageEntry), sizeof(PackageEntry *), 0, J9MEM_CATEGORY_CLASSES, jfrPackageHashFn, jfrPackageHashEqualFn, NULL, _vm);
 		if (NULL == _packageTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_classLoaderTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ClassloaderEntry), sizeof(J9ClassLoader*), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, classloaderNameHashFn, classloaderNameHashEqualFn, NULL, _vm);
+		_classLoaderTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ClassloaderEntry), sizeof(J9ClassLoader*), 0, J9MEM_CATEGORY_CLASSES, classloaderNameHashFn, classloaderNameHashEqualFn, NULL, _vm);
 		if (NULL == _classLoaderTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_methodTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(MethodEntry), sizeof(J9ROMMethod*), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, methodNameHashFn, methodNameHashEqualFn, NULL, _vm);
+		_methodTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(MethodEntry), sizeof(J9ROMMethod*), 0, J9MEM_CATEGORY_CLASSES, methodNameHashFn, methodNameHashEqualFn, NULL, _vm);
 		if (NULL == _methodTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_stringUTF8Table = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(StringUTF8Entry), sizeof(StringUTF8Entry*), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, jfrStringUTF8HashFn, jfrStringUTF8HashEqualFn, NULL, _vm);
+		_stringUTF8Table = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(StringUTF8Entry), sizeof(StringUTF8Entry*), 0, J9MEM_CATEGORY_CLASSES, jfrStringUTF8HashFn, jfrStringUTF8HashEqualFn, NULL, _vm);
 		if (NULL == _stringUTF8Table) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_moduleTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ModuleEntry), sizeof(ModuleEntry*), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, jfrModuleHashFn, jfrModuleHashEqualFn, NULL, _vm);
+		_moduleTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ModuleEntry), sizeof(ModuleEntry*), 0, J9MEM_CATEGORY_CLASSES, jfrModuleHashFn, jfrModuleHashEqualFn, NULL, _vm);
 		if (NULL == _moduleTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_threadTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ThreadEntry), sizeof(U_64), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, threadHashFn, threadHashEqualFn, NULL, _currentThread);
+		_threadTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ThreadEntry), sizeof(U_64), 0, J9MEM_CATEGORY_CLASSES, threadHashFn, threadHashEqualFn, NULL, _currentThread);
 		if (NULL == _threadTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_stackTraceTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(StackTraceEntry), sizeof(U_64), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, stackTraceHashFn, stackTraceHashEqualFn, NULL, _vm);
+		_stackTraceTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(StackTraceEntry), sizeof(U_64), 0, J9MEM_CATEGORY_CLASSES, stackTraceHashFn, stackTraceHashEqualFn, NULL, _vm);
 		if (NULL == _stackTraceTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
 
-		_threadGroupTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ThreadGroupEntry), sizeof(U_64), J9HASH_TABLE_ALLOW_SIZE_OPTIMIZATION, J9MEM_CATEGORY_CLASSES, threadGroupHashFn, threadGroupHashEqualFn, NULL, _vm);
+		_threadGroupTable = hashTableNew(OMRPORT_FROM_J9PORT(privatePortLibrary), J9_GET_CALLSITE(), 0, sizeof(ThreadGroupEntry), sizeof(U_64), 0, J9MEM_CATEGORY_CLASSES, threadGroupHashFn, threadGroupHashEqualFn, NULL, _vm);
 		if (NULL == _threadGroupTable) {
 			_buildResult = OutOfMemory;
 			goto done;
@@ -1127,6 +1200,18 @@ done:
 
 		_monitorWaitTable = pool_new(sizeof(MonitorWaitEntry), 0, sizeof(U_64), 0, J9_GET_CALLSITE(), OMRMEM_CATEGORY_VM, POOL_FOR_PORT(privatePortLibrary));
 		if (NULL == _monitorWaitTable) {
+			_buildResult = OutOfMemory;
+			goto done;
+		}
+
+		_cpuLoadTable = pool_new(sizeof(CPULoadEntry), 0, sizeof(U_64), 0, J9_GET_CALLSITE(), OMRMEM_CATEGORY_VM, POOL_FOR_PORT(privatePortLibrary));
+		if (NULL == _cpuLoadTable) {
+			_buildResult = OutOfMemory;
+			goto done;
+		}
+
+		_threadCPULoadTable = pool_new(sizeof(ThreadCPULoadEntry), 0, sizeof(U_64), 0, J9_GET_CALLSITE(), OMRMEM_CATEGORY_VM, POOL_FOR_PORT(privatePortLibrary));
+		if (NULL == _threadCPULoadTable) {
 			_buildResult = OutOfMemory;
 			goto done;
 		}
@@ -1216,6 +1301,8 @@ done:
 		pool_kill(_threadEndTable);
 		pool_kill(_threadSleepTable);
 		pool_kill(_monitorWaitTable);
+		pool_kill(_cpuLoadTable);
+		pool_kill(_threadCPULoadTable);
 		j9mem_free_memory(_globalStringTable);
 	}
 

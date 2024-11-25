@@ -254,9 +254,9 @@ def checkout_pullrequest() {
     if (omr_bool) {
         dir ('omr') {
             if (omr_upstream) {
-                sh "git config remote.origin.url https://github.com/eclipse/omr.git"
+                sh "git config remote.origin.url https://github.com/eclipse-omr/omr.git"
             }
-            checkout_pullrequest(OMR_PR, 'eclipse/omr')
+            checkout_pullrequest(OMR_PR, 'eclipse-omr/omr')
         }
     }
 }
@@ -828,7 +828,7 @@ def create_docker_image_locally()
         echo 'ARG image
             ARG cuda_ver=12.2.0
             ARG cuda_distro=ubi8
-            FROM nvidia/cuda:${cuda_ver}-devel-${cuda_distro} as cuda
+            FROM nvcr.io/nvidia/cuda:${cuda_ver}-devel-${cuda_distro} as cuda
             FROM $image
             RUN mkdir -p /usr/local/cuda/nvvm
             COPY --from=cuda /usr/local/cuda/include         /usr/local/cuda/include

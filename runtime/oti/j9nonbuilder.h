@@ -346,6 +346,11 @@ struct J9VMContinuation;
 
 #if defined(J9VM_OPT_JFR)
 
+typedef struct J9ThreadJFRState {
+	omrthread_thread_time_t prevThreadCPUTimes;
+	int64_t prevTimestamp;
+} J9ThreadJFRState;
+
 typedef struct J9JFRBufferWalkState {
 	U_8 *current;
 	U_8 *end;
@@ -415,6 +420,19 @@ typedef struct J9JFRMonitorWaited {
 } J9JFRMonitorWaited;
 
 #define J9JFRMonitorWaitedED_STACKTRACE(jfrEvent) ((UDATA*)(((J9JFRMonitorWaited*)(jfrEvent)) + 1))
+
+typedef struct J9JFRCPULoad {
+	J9JFR_EVENT_COMMON_FIELDS
+	float jvmUser;
+	float jvmSystem;
+	float machineTotal;
+} J9JFRCPULoad;
+
+typedef struct J9JFRThreadCPULoad {
+	J9JFR_EVENT_COMMON_FIELDS
+	float user;
+	float system;
+} J9JFRThreadCPULoad;
 
 #endif /* defined(J9VM_OPT_JFR) */
 
@@ -4675,6 +4693,7 @@ typedef struct J9MemoryManagerFunctions {
 #endif /* !defined(J9VM_ENV_DATA64) */
 	void  ( *j9gc_objaccess_indexableStoreObject)(struct J9VMThread *vmThread, J9IndexableObject *destObject, I_32 index, j9object_t value, UDATA isVolatile) ;
 	void  ( *j9gc_objaccess_indexableStoreAddress)(struct J9VMThread *vmThread, J9IndexableObject *destObject, I_32 index, void *value, UDATA isVolatile) ;
+	IDATA  ( *j9gc_objaccess_indexableDataDisplacement)(struct J9VMThread *vmThread, J9IndexableObject *src, J9IndexableObject *dst) ;
 	IDATA  ( *j9gc_objaccess_mixedObjectReadI32)(struct J9VMThread *vmThread, j9object_t srcObject, UDATA offset, UDATA isVolatile) ;
 	UDATA  ( *j9gc_objaccess_mixedObjectReadU32)(struct J9VMThread *vmThread, j9object_t srcObject, UDATA offset, UDATA isVolatile) ;
 	I_64  ( *j9gc_objaccess_mixedObjectReadI64)(struct J9VMThread *vmThread, j9object_t srcObject, UDATA offset, UDATA isVolatile) ;
@@ -4783,6 +4802,7 @@ typedef struct J9MemoryManagerFunctions {
 #endif /* defined(J9VM_GC_OBJECT_ACCESS_BARRIER) */
 	UDATA  ( *j9gc_get_bytes_allocated_by_thread)(struct J9VMThread *vmThread) ;
 	BOOLEAN ( *j9gc_get_cumulative_bytes_allocated_by_thread)(struct J9VMThread *vmThread, UDATA *cumulativeValue) ;
+	BOOLEAN ( *j9gc_get_cumulative_class_unloading_stats)(struct J9VMThread *vmThread, UDATA *anonumous, UDATA *classes, UDATA *classloaders) ;
 
 	jvmtiIterationControl  ( *j9mm_iterate_all_ownable_synchronizer_objects)(struct J9VMThread *vmThread, J9PortLibrary *portLibrary, UDATA flags, jvmtiIterationControl (*func)(struct J9VMThread *vmThread, struct J9MM_IterateObjectDescriptor *object, void *userData), void *userData) ;
 	jvmtiIterationControl  ( *j9mm_iterate_all_continuation_objects)(struct J9VMThread *vmThread, J9PortLibrary *portLibrary, UDATA flags, jvmtiIterationControl (*func)(struct J9VMThread *vmThread, struct J9MM_IterateObjectDescriptor *object, void *userData), void *userData) ;
@@ -4963,7 +4983,7 @@ typedef struct J9InternalVMFunctions {
 #if defined(J9VM_GC_DYNAMIC_CLASS_UNLOADING)
 	void  ( *cleanUpClassLoader)(struct J9VMThread *vmThread, struct J9ClassLoader* classLoader) ;
 #endif /* defined(J9VM_GC_DYNAMIC_CLASS_UNLOADING) */
-	UDATA  ( *iterateStackTrace)(struct J9VMThread * vmThread, j9object_t* exception,  UDATA  (*callback) (struct J9VMThread * vmThread, void * userData, UDATA bytecodeOffset, struct J9ROMClass * romClass, struct J9ROMMethod * romMethod, J9UTF8 * fileName, UDATA lineNumber, struct J9ClassLoader* classLoader, struct J9Class* ramClass), void * userData, UDATA pruneConstructors, UDATA skipHiddenFrames) ;
+	UDATA  ( *iterateStackTrace)(struct J9VMThread * vmThread, j9object_t* exception,  UDATA  (*callback) (struct J9VMThread * vmThread, void * userData, UDATA bytecodeOffset, struct J9ROMClass * romClass, struct J9ROMMethod * romMethod, J9UTF8 * fileName, UDATA lineNumber, struct J9ClassLoader* classLoader, struct J9Class* ramClass, UDATA frameType), void * userData, UDATA pruneConstructors, UDATA skipHiddenFrames) ;
 	char*  ( *getNPEMessage)(struct J9NPEMessageData *npeMsgData);
 	void  ( *internalReleaseVMAccessNoMutex)(struct J9VMThread * vmThread) ;
 	struct J9HookInterface**  ( *getVMHookInterface)(struct J9JavaVM* vm) ;
@@ -5600,6 +5620,9 @@ typedef struct J9VMThread {
 	j9object_t closeScopeObj;
 #endif /* JAVA_SPEC_VERSION >= 22 */
 	UDATA unsafeIndexableHeaderSize;
+#if defined(J9VM_OPT_JFR)
+	J9ThreadJFRState threadJfrState;
+#endif /* defined(J9VM_OPT_JFR) */
 } J9VMThread;
 
 #define J9VMTHREAD_ALIGNMENT  0x100
@@ -5678,6 +5701,9 @@ typedef struct JFRState {
 	BOOLEAN isConstantEventsInitialized;
 	BOOLEAN isStarted;
 	omrthread_monitor_t isConstantEventsInitializedMutex;
+	J9SysinfoCPUTime prevSysCPUTime;
+	omrthread_process_time_t prevProcCPUTimes;
+	int64_t prevProcTimestamp;
 } JFRState;
 
 typedef struct J9ReflectFunctionTable {
@@ -6104,7 +6130,7 @@ typedef struct J9JavaVM {
 	omrthread_monitor_t classLoaderModuleAndLocationMutex;
 	struct J9Pool* modularityPool;
 	struct J9Module *javaBaseModule;
-	struct J9Module *unamedModuleForSystemLoader;
+	struct J9Module *unnamedModuleForSystemLoader;
 	J9ClassPathEntry *modulesPathEntry;
 	jclass jimModules;
 	jmethodID addReads;
@@ -6218,6 +6244,7 @@ typedef struct J9JavaVM {
 	omrthread_t jfrSamplerThread;
 	UDATA jfrSamplerState;
 	IDATA jfrAsyncKey;
+	IDATA jfrThreadCPULoadAsyncKey;
 #endif /* defined(J9VM_OPT_JFR) */
 #if JAVA_SPEC_VERSION >= 22
 	omrthread_monitor_t closeScopeMutex;

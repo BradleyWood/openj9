@@ -927,6 +927,12 @@ extern "C" {
 #define J9_JAVA_NATIVE 0x100
 #define J9_JAVA_STATIC 0x8
 
+/* Stack walker frame Types */
+#define J9VM_STACK_FRAME_INTERPRETER 0
+#define J9VM_STACK_FRAME_JIT 1
+#define J9VM_STACK_FRAME_JIT_INLINE 2
+#define J9VM_STACK_FRAME_NATIVE 3
+
 /* JFR event types */
 
 #define J9JFR_EVENT_TYPE_EXECUTION_SAMPLE 0
@@ -934,6 +940,8 @@ extern "C" {
 #define J9JFR_EVENT_TYPE_THREAD_END 2
 #define J9JFR_EVENT_TYPE_THREAD_SLEEP 3
 #define J9JFR_EVENT_TYPE_OBJECT_WAIT 4
+#define J9JFR_EVENT_TYPE_CPU_LOAD 5
+#define J9JFR_EVENT_TYPE_THREAD_CPU_LOAD 6
 
 /* JFR thread states */
 
@@ -949,6 +957,12 @@ extern "C" {
 #define VALUE_TYPES_MAJOR_VERSION 68
 #define PREVIEW_MINOR_VERSION 65535
 #define J9_IS_CLASSFILE_OR_ROMCLASS_VALUETYPE_VERSION(classfileOrRomClass) (((classfileOrRomClass)->majorVersion >= VALUE_TYPES_MAJOR_VERSION) && (PREVIEW_MINOR_VERSION == (classfileOrRomClass)->minorVersion))
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+/* Constants for java.lang.reflect.Field flags */
+#define TRUST_FINAL 0x10
+#define NULL_RESTRICTED 0x20
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES)*/
 
 #ifdef __cplusplus
 }

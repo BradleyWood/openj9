@@ -637,12 +637,32 @@ TR_VectorAPIExpansion::getVectorSizeFromVectorSpecies(TR::Node *vectorSpeciesNod
       {
       if (vSpeciesSymRef->hasKnownObjectIndex())
          {
-         TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp()->fe());
-         TR::VMAccessCriticalSection getVectorSizeFromVectorSpeciesSection(fej9);
+         int32_t vectorBitSize = 0;
+#if defined(J9VM_OPT_JITSERVER)
+         if (comp()->isOutOfProcessCompilation()) /* In server mode */
+            {
+            auto stream = comp()->getStream();
+            stream->write(JITServer::MessageType::KnownObjectTable_getVectorBitSize,
+                          vSpeciesSymRef->getKnownObjectIndex());
+            vectorBitSize = std::get<0>(stream->read<int32_t>());
+            }
+         else
+#endif /* defined(J9VM_OPT_JITSERVER) */
+            {
+            TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp()->fe());
 
-         uintptr_t vectorSpeciesLocation = comp()->getKnownObjectTable()->getPointer(vSpeciesSymRef->getKnownObjectIndex());
-         uintptr_t vectorShapeLocation = fej9->getReferenceField(vectorSpeciesLocation, "vectorShape", "Ljdk/incubator/vector/VectorShape;");
-         int32_t vectorBitSize = fej9->getInt32Field(vectorShapeLocation, "vectorBitSize");
+            TR::VMAccessCriticalSection getVectorSizeFromVectorSpeciesSection(fej9);
+
+            uintptr_t vectorSpeciesLocation =
+               comp()->getKnownObjectTable()->getPointer(vSpeciesSymRef->getKnownObjectIndex());
+            uintptr_t vectorShapeLocation =
+               fej9->getReferenceField(vectorSpeciesLocation,
+                                       "vectorShape",
+                                       "Ljdk/incubator/vector/VectorShape;");
+            vectorBitSize = fej9->getInt32Field(vectorShapeLocation, "vectorBitSize");
+            }
+
+
          return (vec_sz_t)vectorBitSize;
          }
       }
@@ -650,27 +670,50 @@ TR_VectorAPIExpansion::getVectorSizeFromVectorSpecies(TR::Node *vectorSpeciesNod
    }
 
 
-J9Class *
-TR_VectorAPIExpansion::getJ9ClassFromClassNode(TR::Compilation *comp, TR::Node *classNode)
+TR_OpaqueClassBlock *
+TR_VectorAPIExpansion::getOpaqueClassBlockFromClassNode(TR::Compilation *comp, TR::Node *classNode)
    {
    if (!classNode->getOpCode().hasSymbolReference())
       return NULL;
 
    TR::SymbolReference *symRef = classNode->getSymbolReference();
-   if (symRef)
+
+   TR::KnownObjectTable::Index knownObjectIndex = TR::KnownObjectTable::UNKNOWN;
+
+   if (symRef && symRef->hasKnownObjectIndex())
       {
-      if (symRef->hasKnownObjectIndex())
+      knownObjectIndex = symRef->getKnownObjectIndex();
+      }
+   else if (classNode->hasKnownObjectIndex())
+      {
+      knownObjectIndex = classNode->getKnownObjectIndex();
+      }
+
+   if (knownObjectIndex != TR::KnownObjectTable::UNKNOWN)
+      {
+      TR_OpaqueClassBlock *clazz = NULL;
+#if defined(J9VM_OPT_JITSERVER)
+      if (comp->isOutOfProcessCompilation()) /* In server mode */
+         {
+         auto stream = comp->getStream();
+         stream->write(JITServer::MessageType::KnownObjectTable_getOpaqueClass,
+                        symRef->getKnownObjectIndex());
+         clazz = (TR_OpaqueClassBlock *)std::get<0>(stream->read<uintptr_t>());
+         }
+      else
+#endif /* defined(J9VM_OPT_JITSERVER) */
          {
          TR_J9VMBase *fej9 = comp->fej9();
 
          TR::VMAccessCriticalSection getDataTypeFromClassNodeSection(fej9);
 
-         uintptr_t javaLangClass = comp->getKnownObjectTable()->getPointer(symRef->getKnownObjectIndex());
-         J9Class *j9class = (J9Class *)(intptr_t)fej9->getInt64Field(javaLangClass, "vmRef");
-
-         return j9class;
+         uintptr_t javaLangClass = comp->getKnownObjectTable()->getPointer(knownObjectIndex);
+         clazz = (TR_OpaqueClassBlock *)(intptr_t)fej9->getInt64Field(javaLangClass, "vmRef");
          }
+
+      return clazz;
       }
+
    return NULL;
    }
 
@@ -678,38 +721,24 @@ TR_VectorAPIExpansion::getJ9ClassFromClassNode(TR::Compilation *comp, TR::Node *
 TR::DataType
 TR_VectorAPIExpansion::getDataTypeFromClassNode(TR::Compilation *comp, TR::Node *classNode)
    {
-   J9Class *j9class = getJ9ClassFromClassNode(comp, classNode);
+   TR_OpaqueClassBlock *clazz = getOpaqueClassBlockFromClassNode(comp, classNode);
 
-   if (!j9class) return TR::NoType;
+   if (!clazz) return TR::NoType;
 
    TR_J9VMBase *fej9 = comp->fej9();
-   J9JavaVM *vm = fej9->getJ9JITConfig()->javaVM;
-
-   if (j9class == vm->floatReflectClass)
-      return TR::Float;
-   else if (j9class == vm->doubleReflectClass)
-      return TR::Double;
-   else if (j9class == vm->byteReflectClass)
-      return TR::Int8;
-   else if (j9class == vm->shortReflectClass)
-      return TR::Int16;
-   else if (j9class == vm->intReflectClass)
-      return TR::Int32;
-   else if (j9class == vm->longReflectClass)
-      return TR::Int64;
-   else
-      return TR::NoType;
+   return fej9->getClassPrimitiveDataType(clazz);
    }
 
 
 TR_VectorAPIExpansion::vapiObjType
 TR_VectorAPIExpansion::getObjectTypeFromClassNode(TR::Compilation *comp, TR::Node *classNode)
    {
-   J9Class *j9class = getJ9ClassFromClassNode(comp, classNode);
+   TR_OpaqueClassBlock *clazz = getOpaqueClassBlockFromClassNode(comp, classNode);
 
-   if (!j9class) return Unknown;
+   if (!clazz) return Unknown;
 
-   J9UTF8 *className = J9ROMCLASS_CLASSNAME(j9class->romClass);
+   J9ROMClass *romClass = TR::Compiler->cls.romClassOf(clazz);
+   J9UTF8 *className = J9ROMCLASS_CLASSNAME(romClass);
    int32_t length = J9UTF8_LENGTH(className);
    char *classNameChars = (char*)J9UTF8_DATA(className);
 
@@ -1245,9 +1274,9 @@ void TR_VectorAPIExpansion::anchorOldChildren(TR_VectorAPIExpansion *opt, TR::Tr
 
 
 TR::Node *
-TR_VectorAPIExpansion::generateAddressNode(TR::Compilation *comp, TR::Node *array, TR::Node *arrayIndex, int32_t elementSize)
+TR_VectorAPIExpansion::generateArrayElementAddressNode(TR::Compilation *comp, TR::Node *array, TR::Node *arrayIndex, int32_t elementSize)
    {
-   TR_ASSERT_FATAL_WITH_NODE(array, comp->target().is64Bit(), "TR_VectorAPIExpansion::generateAddressNode supports 64 bit vm only.");
+   TR_ASSERT_FATAL_WITH_NODE(array, comp->target().is64Bit(), "TR_VectorAPIExpansion::generateArrayElementAddressNode supports 64 bit vm only.");
 
    int32_t shiftAmount = 0;
    while ((elementSize = (elementSize >> 1)))
@@ -1267,6 +1296,13 @@ TR_VectorAPIExpansion::generateAddressNode(TR::Compilation *comp, TR::Node *arra
    return aladdNode;
    }
 
+TR::Node *
+TR_VectorAPIExpansion::generateAddressNode(TR::Node *base, TR::Node *offset)
+   {
+   TR::Node *aladdNode = TR::Node::create(TR::aladd, 2, base, offset);
+   aladdNode->setIsInternalPointer(true);
+   return aladdNode;
+   }
 
 void TR_VectorAPIExpansion::aloadHandler(TR_VectorAPIExpansion *opt, TR::TreeTop *treeTop, TR::Node *node,
                                          TR::DataType elementType, TR::VectorLength vectorLength, int32_t numLanes, handlerMode mode)
@@ -1436,27 +1472,22 @@ TR::Node *TR_VectorAPIExpansion::loadIntrinsicHandler(TR_VectorAPIExpansion *opt
    if (opt->_trace)
       traceMsg(comp, "loadIntrinsicHandler for node %p\n", node);
 
-#if JAVA_SPEC_VERSION <= 21
-   TR::Node *array = node->getChild(5);
-   TR::Node *arrayIndex = node->getChild(6);
-#else
-   TR::Node *array = node->getChild(6);
-   TR::Node *arrayIndex = node->getChild(7);
-#endif
+   TR::Node *base = node->getChild(3);
+   TR::Node *offset = node->getChild(4);
 
-   return transformLoadFromArray(opt, treeTop, node, elementType, vectorLength, numLanes, mode, array, arrayIndex, objType);
+   return transformLoadFromArray(opt, treeTop, node, elementType, vectorLength, numLanes, mode, base, offset, objType);
    }
 
 TR::Node *TR_VectorAPIExpansion::transformLoadFromArray(TR_VectorAPIExpansion *opt, TR::TreeTop *treeTop, TR::Node *node,
                                                         TR::DataType elementType, TR::VectorLength vectorLength, int32_t numLanes,
                                                         handlerMode mode,
-                                                        TR::Node *array, TR::Node *arrayIndex, vapiObjType objType)
+                                                        TR::Node *base, TR::Node *offset, vapiObjType objType)
 
    {
    TR::Compilation *comp = opt->comp();
 
    int32_t elementSize = OMR::DataType::getSize(elementType);
-   TR::Node *aladdNode = generateAddressNode(comp, array, arrayIndex, objType == Mask ? 1 : elementSize);
+   TR::Node *aladdNode = generateAddressNode(base, offset);
 
    anchorOldChildren(opt, treeTop, node);
 
@@ -1650,30 +1681,28 @@ TR::Node *TR_VectorAPIExpansion::storeIntrinsicHandler(TR_VectorAPIExpansion *op
    if (opt->_trace)
       traceMsg(comp, "storeIntrinsicHandler for node %p\n", node);
 
+   TR::Node *base = node->getChild(3);
+   TR::Node *offset = node->getChild(4);
 #if JAVA_SPEC_VERSION <= 21
    TR::Node *valueToWrite = node->getChild(5);
-   TR::Node *array = node->getChild(6);
-   TR::Node *arrayIndex = node->getChild(7);
 #else
    TR::Node *valueToWrite = node->getChild(6);
-   TR::Node *array = node->getChild(7);
-   TR::Node *arrayIndex = node->getChild(8);
 #endif
 
-   return transformStoreToArray(opt, treeTop, node, elementType, vectorLength, numLanes, mode, valueToWrite, array, arrayIndex, objType);
+   return transformStoreToArray(opt, treeTop, node, elementType, vectorLength, numLanes, mode, valueToWrite, base, offset, objType);
    }
 
 
 TR::Node *TR_VectorAPIExpansion::transformStoreToArray(TR_VectorAPIExpansion *opt, TR::TreeTop *treeTop, TR::Node *node,
                                                        TR::DataType elementType, TR::VectorLength vectorLength, int32_t numLanes,
                                                        handlerMode mode,
-                                                       TR::Node *valueToWrite, TR::Node *array, TR::Node *arrayIndex, vapiObjType objType)
+                                                       TR::Node *valueToWrite, TR::Node *base, TR::Node *offset, vapiObjType objType)
 
    {
    TR::Compilation *comp = opt->comp();
 
    int32_t  elementSize = OMR::DataType::getSize(elementType);
-   TR::Node *aladdNode = generateAddressNode(comp, array, arrayIndex, objType == Mask ? 1 : elementSize);
+   TR::Node *aladdNode = generateAddressNode(base, offset);
 
    anchorOldChildren(opt, treeTop, node);
    node->setAndIncChild(0, aladdNode);

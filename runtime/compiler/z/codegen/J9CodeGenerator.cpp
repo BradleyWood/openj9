@@ -106,10 +106,25 @@ J9::Z::CodeGenerator::initialize()
       cg->setSupportsInlineStringLatin1Inflate();
       }
 
-   // See comment in `handleHardwareReadBarrier` implementation as to why we cannot support CTX under CS
-   if (cg->getSupportsTM() && TR::Compiler->om.readBarrierType() == gc_modron_readbar_none)
+   // For IBM Java 8 ConcurrentLinkedQueue.poll and offer has been accelerated
+   // using constrained transactional execution instructions.
+   // If CTX feature is supported on processor, and JIT has not disabled it
+   // using TR_DisableTM option, then inlining of ConcurrentLinkedQueue.poll/offer
+   // is supported.
+   // See comment in `handleHardwareReadBarrier` implementation as to why we
+   // cannot support CTX under CS
+   if ((comp->target().cpu.supportsFeature(OMR_FEATURE_S390_CONSTRAINED_TRANSACTIONAL_EXECUTION_FACILITY)
+         && !comp->getOption(TR_DisableTM))
+      && TR::Compiler->om.readBarrierType() == gc_modron_readbar_none)
       {
       cg->setSupportsInlineConcurrentLinkedQueue();
+      }
+
+   static bool disableInlineStringCodingHasNegatives = feGetEnv("TR_DisableInlineStringCodingHasNegatives") != NULL;
+   if (cg->getSupportsVectorRegisters() && !disableInlineStringCodingHasNegatives &&
+        !TR::Compiler->om.canGenerateArraylets())
+      {
+      cg->setSupportsInlineStringCodingHasNegatives();
       }
 
    // Similar to AOT, array translate instructions are not supported for remote compiles because instructions such as
@@ -127,9 +142,9 @@ J9::Z::CodeGenerator::initialize()
 
    static bool disableInlineVectorizedMismatch = feGetEnv("TR_disableInlineVectorizedMismatch") != NULL;
    if (cg->getSupportsArrayCmpLen() &&
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
          !TR::Compiler->om.isOffHeapAllocationEnabled() &&
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
          !disableInlineVectorizedMismatch)
       {
       cg->setSupportsInlineVectorizedMismatch();
@@ -539,9 +554,9 @@ J9::Z::CodeGenerator::lowerTreeIfNeeded(
 
    // J9, Z
    //
-   if (comp->target().cpu.isZ() && node->getOpCodeValue() == TR::aloadi && node->isUnneededIALoad())
+   if (comp->target().cpu.isZ() && node->getOpCodeValue() == TR::aloadi && node->isUnneededAloadi())
       {
-      ListIterator<TR_Pair<TR::Node, int32_t> > listIter(&_ialoadUnneeded);
+      ListIterator<TR_Pair<TR::Node, int32_t> > listIter(&_aloadiUnneeded);
       TR_Pair<TR::Node, int32_t> *ptr;
       uintptr_t temp;
       int32_t updatedTemp;
@@ -551,7 +566,7 @@ J9::Z::CodeGenerator::lowerTreeIfNeeded(
          updatedTemp = (int32_t) temp;
          if (ptr->getKey() == node && temp != node->getReferenceCount())
             {
-            node->setUnneededIALoad(false);
+            node->setUnneededAloadi(false);
             break;
             }
          }
@@ -4003,6 +4018,13 @@ J9::Z::CodeGenerator::inlineDirectCall(
             {
             resultReg = TR::TreeEvaluator::inlineStringLatin1Inflate(node, cg);
             return resultReg != NULL;
+            }
+      break;
+      case TR::java_lang_StringCoding_hasNegatives:
+         if (cg->getSupportsInlineStringCodingHasNegatives())
+            {
+            resultReg = TR::TreeEvaluator::inlineStringCodingHasNegatives(node, cg);
+            return true;
             }
       break;
       case TR::com_ibm_jit_JITHelpers_transformedEncodeUTF16Big:

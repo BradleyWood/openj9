@@ -736,7 +736,10 @@ private static void ensureProperties(boolean isInitialization) {
 	/*[ENDIF] CRIU_SUPPORT */
 
 	/*[IF JFR_SUPPORT]*/
+	/* Enables openj9 JFR tests. */
 	initializedProperties.put("org.eclipse.openj9.jfr.isJFREnabled", "true"); //$NON-NLS-1$ //$NON-NLS-2$
+	/* TODO disable JFR JCL APIs until JFR natives are implemented. */
+	initializedProperties.put("jfr.unsupported.vm", "true"); //$NON-NLS-1$ //$NON-NLS-2$
 	/*[ENDIF] JFR_SUPPORT */
 
 	String[] list = getPropertyList();
@@ -1101,6 +1104,11 @@ public static int identityHashCode(Object anObject) {
 	if (anObject == null) {
 		return 0;
 	}
+/*[IF INLINE-TYPES]*/
+	if (anObject.getClass().isValue()) {
+		return J9VMInternals.valueHashCode(anObject);
+	}
+/*[ENDIF] INLINE-TYPES */
 	return J9VMInternals.fastIdentityHashCode(anObject);
 }
 
@@ -1293,11 +1301,11 @@ static void initSecurityManager(ClassLoader applicationClassLoader) {
 }
 /*[ENDIF] JAVA_SPEC_VERSION >= 9 */
 
-/*[IF JAVA_SPEC_VERSION >= 23]*/
+/*[IF JAVA_SPEC_VERSION == 23]*/
 static boolean allowSecurityManager() {
 	return !throwUOEFromSetSM;
 }
-/*[ENDIF] JAVA_SPEC_VERSION >= 23 */
+/*[ENDIF] JAVA_SPEC_VERSION == 23 */
 
 /**
  * Sets the active security manager. Note that once

@@ -646,12 +646,12 @@ void J9FASTCALL _jitProfileStringValue(uintptr_t value, int32_t charsOffset, int
       readValues = true;
 
       uintptr_t startOfData = value;
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
       if (TR::Compiler->om.isOffHeapAllocationEnabled())
          {
          startOfData = *((uintptr_t *) (value + TR::Compiler->om.offsetOfContiguousDataAddrField()));
          }
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
 
       if (TR::Compiler->om.compressObjectReferences())
          {
@@ -668,9 +668,9 @@ void J9FASTCALL _jitProfileStringValue(uintptr_t value, int32_t charsOffset, int
       else
          chars = *((char **) (startOfData + charsOffset));
 
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
       if (!TR::Compiler->om.isOffHeapAllocationEnabled())
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
       {
       chars = chars + (TR::Compiler->om.contiguousArrayHeaderSizeInBytes());
       }
@@ -927,7 +927,7 @@ void dumpAllClasses(J9VMThread *vmThread)
    char fileName[256];
    J9Class * clazz = NULL;
 
-   sprintf(fileName, "tracer-classdump-%p.txt", vmThread);
+   snprintf(fileName, sizeof(fileName), "tracer-classdump-%p.txt", vmThread);
 
    if (!(fp = fopen(fileName, "at")))
       {
@@ -935,7 +935,7 @@ void dumpAllClasses(J9VMThread *vmThread)
       return;
       }
 
-   sprintf(fileName, "tracer-methoddump-%p.txt", vmThread);
+   snprintf(fileName, sizeof(fileName), "tracer-methoddump-%p.txt", vmThread);
 
    if (!(methodFP = fopen(fileName, "at")))
       {
@@ -943,7 +943,7 @@ void dumpAllClasses(J9VMThread *vmThread)
       return;
       }
 
-   sprintf(fileName, "tracer-fielddump-%p.txt", vmThread);
+   snprintf(fileName, sizeof(fileName), "tracer-fielddump-%p.txt", vmThread);
 
    if (!(fieldFP = fopen(fileName, "at")))
       {
@@ -951,7 +951,7 @@ void dumpAllClasses(J9VMThread *vmThread)
       return;
       }
 
-   sprintf(fileName, "tracer-staticsdump-%p.txt", vmThread);
+   snprintf(fileName, sizeof(fileName), "tracer-staticsdump-%p.txt", vmThread);
 
    if (!(staticsFP = fopen(fileName, "at")))
       {

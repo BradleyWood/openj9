@@ -96,6 +96,7 @@ enum MessageType : uint16_t
    ResolvedMethod_getResolvedImplementorMethods,
    ResolvedMethod_isFieldNullRestricted,
    ResolvedMethod_isFieldFlattened,
+   ResolvedMethod_getTargetMethodFromMemberName,
 
    ResolvedRelocatableMethod_createResolvedRelocatableJ9Method,
    ResolvedRelocatableMethod_fieldAttributes,
@@ -283,11 +284,16 @@ enum MessageType : uint16_t
    KnownObjectTable_createSymRefWithKnownObject,
    KnownObjectTable_getReferenceField,
    KnownObjectTable_getKnownObjectTableDumpInfo,
+   // for getting a J9Class from KnownObjectTable
+   KnownObjectTable_getOpaqueClass,
+   // for getting a vectorBitSize from KnownObjectTable
+   KnownObjectTable_getVectorBitSize,
 
    AOTCache_getROMClassBatch,
 
    AOTCacheMap_request,
    AOTCacheMap_reply,
+
 
    MessageType_MAXTYPE
    };

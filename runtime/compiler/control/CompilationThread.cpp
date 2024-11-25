@@ -59,6 +59,7 @@
 #include "env/StackMemoryRegion.hpp"
 #include "env/jittypes.h"
 #include "env/ClassTableCriticalSection.hpp"
+#include "env/DependencyTable.hpp"
 #include "env/PersistentCHTable.hpp"
 #include "env/VMAccessCriticalSection.hpp"
 #include "env/VerboseLog.hpp"
@@ -1128,8 +1129,8 @@ TR::CompilationInfoPerThread::CompilationInfoPerThread(TR::CompilationInfo &comp
       // NOTE:
       //       the (char *) casts are done because on Z, sprintf expects
       //       a (char *) instead of a (const char *)
-      sprintf(_activeThreadName,    (char *) selectedActiveThreadName,    getCompThreadId());
-      sprintf(_suspendedThreadName, (char *) selectedSuspendedThreadName, getCompThreadId());
+      snprintf(_activeThreadName,    activeThreadNameLength,    (char *) selectedActiveThreadName,    getCompThreadId());
+      snprintf(_suspendedThreadName, suspendedThreadNameLength, (char *) selectedSuspendedThreadName, getCompThreadId());
 
       _initializationSucceeded = true;
       }
@@ -8253,6 +8254,11 @@ TR::CompilationInfoPerThreadBase::compile(J9VMThread * vmThread,
    vmThread->omrVMThread->vmState = J9VMSTATE_JIT | J9VMSTATE_MINOR;
    vmThread->jitMethodToBeCompiled = method;
 
+   // If method is being compiled, then the dependency table no longer needs to
+   // track it. Let the table know.
+   if (auto dependencyTable = getCompilationInfo()->getPersistentInfo()->getAOTDependencyTable())
+      dependencyTable->methodWillBeCompiled(method);
+
    try
       {
       TR::RawAllocator rawAllocator(vmThread->javaVM);
@@ -8625,6 +8631,9 @@ TR::CompilationInfoPerThreadBase::wrappedCompile(J9PortLibrary *portLib, void * 
                // disable SVM in case it was enabled explicitly with -Xjit:useSymbolValidationManager
                options->setOption(TR_UseSymbolValidationManager, false);
                }
+
+            if (!vm->canTrackAOTDependencies() || !that->_compInfo.getPersistentInfo()->getTrackAOTDependencies())
+               options->setOption(TR_DisableDependencyTracking);
 
             // Adjust Options for AOT compilation
             if (vm->isAOT_DEPRECATED_DO_NOT_USE())

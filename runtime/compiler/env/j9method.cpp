@@ -398,8 +398,9 @@ TR_J9MethodBase::signature(TR_Memory * trMemory, TR_AllocationKind allocKind)
    {
    if( !_fullSignature )
       {
-   char * s = (char *)trMemory->allocateMemory(classNameLength() + nameLength() + signatureLength() + 3, allocKind);
-   sprintf(s, "%.*s.%.*s%.*s", classNameLength(), classNameChars(), nameLength(), nameChars(), signatureLength(), signatureChars());
+   size_t len = classNameLength() + nameLength() + signatureLength() + 3;
+   char * s = (char *)trMemory->allocateMemory(len, allocKind);
+   snprintf(s, len, "%.*s.%.*s%.*s", classNameLength(), classNameChars(), nameLength(), nameChars(), signatureLength(), signatureChars());
 
       if ( allocKind == heapAlloc)
         _fullSignature = s;
@@ -690,7 +691,7 @@ TR_ResolvedJ9MethodBase::fieldOrStaticName(I_32 cpIndex, int32_t & len, TR_Memor
    len = J9UTF8_LENGTH(declName) + J9UTF8_LENGTH(J9ROMNAMEANDSIGNATURE_NAME(nameAndSignature)) + J9UTF8_LENGTH(J9ROMNAMEANDSIGNATURE_SIGNATURE(nameAndSignature)) +3;
 
    char * s = (char *)trMemory->allocateMemory(len, kind);
-   sprintf(s, "%.*s.%.*s %.*s",
+   snprintf(s, len, "%.*s.%.*s %.*s",
            J9UTF8_LENGTH(declName), utf8Data(declName),
            J9UTF8_LENGTH(J9ROMNAMEANDSIGNATURE_NAME(nameAndSignature)), utf8Data(J9ROMNAMEANDSIGNATURE_NAME(nameAndSignature)),
            J9UTF8_LENGTH(J9ROMNAMEANDSIGNATURE_SIGNATURE(nameAndSignature)), utf8Data(J9ROMNAMEANDSIGNATURE_SIGNATURE(nameAndSignature)));
@@ -1294,6 +1295,30 @@ TR_ResolvedRelocatableJ9Method::isUnresolvedMethodHandle(I_32 cpIndex)
    return true;
    }
 
+bool
+TR_ResolvedRelocatableJ9Method::isUnresolvedCallSiteTableEntry(int32_t callSiteIndex)
+   {
+   bool unresolved = true;
+   J9JavaVM * javaVM = fej9()->_jitConfig->javaVM;
+   if (J9_ARE_ALL_BITS_SET(javaVM->sharedClassConfig->runtimeFlags2, J9SHR_RUNTIMEFLAG2_SHARE_LAMBDAFORM))
+      {
+      unresolved = TR_ResolvedJ9Method::isUnresolvedCallSiteTableEntry(callSiteIndex);
+      }
+   return unresolved;
+   }
+
+bool
+TR_ResolvedRelocatableJ9Method::isUnresolvedMethodTypeTableEntry(int32_t cpIndex)
+   {
+   bool unresolved = true;
+   J9JavaVM * javaVM = fej9()->_jitConfig->javaVM;
+   if (J9_ARE_ALL_BITS_SET(javaVM->sharedClassConfig->runtimeFlags2, J9SHR_RUNTIMEFLAG2_SHARE_LAMBDAFORM))
+      {
+      unresolved = TR_ResolvedJ9Method::isUnresolvedMethodTypeTableEntry(cpIndex);
+      }
+   return unresolved;
+   }
+
 TR_ResolvedMethod *
 TR_ResolvedRelocatableJ9Method::getResolvedPossiblyPrivateVirtualMethod(
    TR::Compilation *comp,
@@ -1830,7 +1855,7 @@ TR_ResolvedJ9Method::aotMaskResolvedImproperInterfaceMethod(
    }
 
 TR_ResolvedMethod *
-TR_ResolvedRelocatableJ9Method::createResolvedMethodFromJ9Method(TR::Compilation *comp, I_32 cpIndex, uint32_t vTableSlot, J9Method *j9method, bool * unresolvedInCP, TR_AOTInliningStats *aotStats)
+TR_ResolvedRelocatableJ9Method::createResolvedMethodFromJ9Method(TR::Compilation *comp, I_32 cpIndex, uint32_t vTableSlot, J9Method *j9method, TR_AOTInliningStats *aotStats)
    {
    TR_ResolvedMethod *resolvedMethod = NULL;
 
@@ -2807,6 +2832,7 @@ void TR_ResolvedJ9Method::construct()
       {
       {x(TR::java_lang_StringCoding_decode, "decode", "(Ljava/nio/charset/Charset;[BII)[C")},
       {x(TR::java_lang_StringCoding_encode, "encode", "(Ljava/nio/charset/Charset;[CII)[B")},
+      {x(TR::java_lang_StringCoding_hasNegatives, "hasNegatives", "([BII)Z")},
       {x(TR::java_lang_StringCoding_implEncodeISOArray, "implEncodeISOArray", "([BI[BII)I")},
       {x(TR::java_lang_StringCoding_implEncodeAsciiArray, "implEncodeAsciiArray", "([CI[BII)I")},
       {x(TR::java_lang_StringCoding_encode8859_1,       "encode8859_1",       "(B[B)[B")},
@@ -3010,7 +3036,15 @@ void TR_ResolvedJ9Method::construct()
       {x(TR::sun_misc_Unsafe_ensureClassInitialized,      "ensureClassInitialized",      "(Ljava/lang/Class;)V")},
       {x(TR::sun_misc_Unsafe_allocateInstance,            "allocateInstance",            "(Ljava/lang/Class;)Ljava/lang/Object;")},
       {x(TR::sun_misc_Unsafe_allocateUninitializedArray0, "allocateUninitializedArray0", "(Ljava/lang/Class;I)Ljava/lang/Object;")},
-      {x(TR::jdk_internal_misc_Unsafe_copyMemory0,   "copyMemory0", "(Ljava/lang/Object;JLjava/lang/Object;JJ)V")},
+      {x(TR::jdk_internal_misc_Unsafe_copyMemory0,        "copyMemory0",                 "(Ljava/lang/Object;JLjava/lang/Object;JJ)V")},
+      {x(TR::jdk_internal_misc_Unsafe_getCharUnaligned,   "getCharUnaligned",            "(Ljava/lang/Object;J)C")},
+      {x(TR::jdk_internal_misc_Unsafe_getShortUnaligned,  "getShortUnaligned",           "(Ljava/lang/Object;J)S")},
+      {x(TR::jdk_internal_misc_Unsafe_getIntUnaligned,    "getIntUnaligned",             "(Ljava/lang/Object;J)I")},
+      {x(TR::jdk_internal_misc_Unsafe_getLongUnaligned,   "getLongUnaligned",            "(Ljava/lang/Object;J)J")},
+      {x(TR::jdk_internal_misc_Unsafe_putCharUnaligned,   "putCharUnaligned",            "(Ljava/lang/Object;JC)V")},
+      {x(TR::jdk_internal_misc_Unsafe_putShortUnaligned,  "putShortUnaligned",           "(Ljava/lang/Object;JS)V")},
+      {x(TR::jdk_internal_misc_Unsafe_putIntUnaligned,    "putIntUnaligned",             "(Ljava/lang/Object;JI)V")},
+      {x(TR::jdk_internal_misc_Unsafe_putLongUnaligned,   "putLongUnaligned",            "(Ljava/lang/Object;JJ)V")},
       {  TR::unknownMethod}
       };
 
@@ -5102,6 +5136,7 @@ TR_ResolvedJ9Method::setRecognizedMethodInfo(TR::RecognizedMethod rm)
             case TR::java_lang_String_hashCodeImplCompressed:
             case TR::java_lang_String_hashCodeImplDecompressed:
             case TR::java_lang_StringLatin1_inflate:
+            case TR::java_lang_StringCoding_hasNegatives:
             case TR::sun_nio_ch_NativeThread_current:
             case TR::com_ibm_crypto_provider_AEScryptInHardware_cbcDecrypt:
             case TR::com_ibm_crypto_provider_AEScryptInHardware_cbcEncrypt:
@@ -5288,10 +5323,7 @@ bool TR_ResolvedJ9Method::isSubjectToPhaseChange(TR::Compilation *comp)
 
             if (J9UTF8_LENGTH(name) == 13)
                {
-               char s[15];
-               sprintf(s, "%.*s",
-                    J9UTF8_LENGTH(name), J9UTF8_DATA(name));
-               if (strncmp(s, "specInstance$", 13) == 0)
+               if (0 == strncmp((const char *)J9UTF8_DATA(name), "specInstance$", 13))
                   return true;
                }
             }
@@ -5632,6 +5664,14 @@ TR_J9MethodBase::isUnsafeWithObjectArg()
       case TR::sun_misc_Unsafe_putFloatOrdered_jlObjectJF_V:
       case TR::sun_misc_Unsafe_putDoubleOrdered_jlObjectJD_V:
       case TR::sun_misc_Unsafe_putObjectOrdered_jlObjectJjlObject_V:
+      case TR::jdk_internal_misc_Unsafe_getCharUnaligned:
+      case TR::jdk_internal_misc_Unsafe_getShortUnaligned:
+      case TR::jdk_internal_misc_Unsafe_getIntUnaligned:
+      case TR::jdk_internal_misc_Unsafe_getLongUnaligned:
+      case TR::jdk_internal_misc_Unsafe_putCharUnaligned:
+      case TR::jdk_internal_misc_Unsafe_putShortUnaligned:
+      case TR::jdk_internal_misc_Unsafe_putIntUnaligned:
+      case TR::jdk_internal_misc_Unsafe_putLongUnaligned:
          return true;
       default:
          return false;
@@ -6497,8 +6537,9 @@ TR_ResolvedJ9Method::newInstancePrototypeSignature(TR_Memory * m, TR_AllocationK
    TR_ASSERT(_j9classForNewInstance, "Must have the class for newInstance");
    J9Class * clazz = _j9classForNewInstance; //((J9Class*)((uintptr_t)(ramMethod()->extra) & ~J9_STARTPC_NOT_TRANSLATED);
    char    * className = fej9()->getClassNameChars(_fe->convertClassPtrToClassOffset(clazz), clen);
-   char    * s = (char *)m->allocateMemory(clen+nameLength()+signatureLength()+3, allocKind);
-   sprintf(s, "%.*s.%.*s%.*s", clen, className, nameLength(), nameChars(), signatureLength(), signatureChars());
+   size_t    len = clen + nameLength() + signatureLength() + 3;
+   char    * s = (char *)m->allocateMemory(len, allocKind);
+   snprintf(s, len, "%.*s.%.*s%.*s", clen, className, nameLength(), nameChars(), signatureLength(), signatureChars());
    return s;
    }
 
@@ -6659,7 +6700,7 @@ TR_ResolvedJ9Method::getResolvedImproperInterfaceMethod(TR::Compilation * comp, 
    if (j9method == NULL)
       return NULL;
    else
-      return createResolvedMethodFromJ9Method(comp, cpIndex, (uint32_t)vtableOffset, j9method, NULL, NULL);
+      return createResolvedMethodFromJ9Method(comp, cpIndex, (uint32_t)vtableOffset, j9method, NULL);
 #endif
    }
 
@@ -6678,7 +6719,7 @@ TR_ResolvedJ9Method::getResolvedInterfaceMethod(TR::Compilation * comp, TR_Opaqu
       TR_AOTInliningStats *aotStats = NULL;
       if (comp->getOption(TR_EnableAOTStats))
          aotStats = & (((TR_JitPrivateConfig *)_fe->_jitConfig->privateConfig)->aotStats->interfaceMethods);
-      TR_ResolvedMethod *m = createResolvedMethodFromJ9Method(comp, cpIndex, 0, ramMethod, NULL, aotStats);
+      TR_ResolvedMethod *m = createResolvedMethodFromJ9Method(comp, cpIndex, 0, ramMethod, aotStats);
 
       TR_OpaqueClassBlock *c = NULL;
       if (m)
@@ -6752,7 +6793,7 @@ TR_ResolvedJ9Method::getResolvedStaticMethod(TR::Compilation * comp, I_32 cpInde
       TR_AOTInliningStats *aotStats = NULL;
       if (comp->getOption(TR_EnableAOTStats))
          aotStats = & (((TR_JitPrivateConfig *)_fe->_jitConfig->privateConfig)->aotStats->staticMethods);
-      resolvedMethod = createResolvedMethodFromJ9Method(comp, cpIndex, 0, ramMethod, unresolvedInCP, aotStats);
+      resolvedMethod = createResolvedMethodFromJ9Method(comp, cpIndex, 0, ramMethod, aotStats);
       if (unresolvedInCP)
          *unresolvedInCP = false;
       }
@@ -6803,7 +6844,7 @@ TR_ResolvedJ9Method::getResolvedSpecialMethod(TR::Compilation * comp, I_32 cpInd
          if (comp->getOption(TR_EnableAOTStats))
             aotStats = & (((TR_JitPrivateConfig *)_fe->_jitConfig->privateConfig)->aotStats->specialMethods);
          if (createResolvedMethod)
-            resolvedMethod = createResolvedMethodFromJ9Method(comp, cpIndex, 0, ramMethod, unresolvedInCP, aotStats);
+            resolvedMethod = createResolvedMethodFromJ9Method(comp, cpIndex, 0, ramMethod, aotStats);
          if (unresolvedInCP)
             *unresolvedInCP = false;
          }
@@ -6898,7 +6939,7 @@ TR_ResolvedJ9Method::getResolvedPossiblyPrivateVirtualMethod(TR::Compilation * c
             }
 
          if (createResolvedMethod)
-            resolvedMethod = createResolvedMethodFromJ9Method(comp, cpIndex, vTableOffset, ramMethod, unresolvedInCP, aotStats);
+            resolvedMethod = createResolvedMethodFromJ9Method(comp, cpIndex, vTableOffset, ramMethod, aotStats);
          }
 
       }
@@ -6938,7 +6979,7 @@ TR_ResolvedJ9Method::getResolvedVirtualMethod(
    }
 
 TR_ResolvedMethod *
-TR_ResolvedJ9Method::createResolvedMethodFromJ9Method(TR::Compilation *comp, I_32 cpIndex, uint32_t vTableSlot, J9Method *j9Method, bool * unresolvedInCP, TR_AOTInliningStats *aotStats)
+TR_ResolvedJ9Method::createResolvedMethodFromJ9Method(TR::Compilation *comp, I_32 cpIndex, uint32_t vTableSlot, J9Method *j9Method, TR_AOTInliningStats *aotStats)
    {
    TR_ResolvedMethod *m = new (comp->trHeapMemory()) TR_ResolvedJ9Method((TR_OpaqueMethodBlock *) j9Method, _fe, comp->trMemory(), this, vTableSlot);
 
@@ -6968,6 +7009,25 @@ TR_ResolvedJ9Method::handleUnresolvedSpecialMethodInCP(int32_t cpIndex, bool * u
 void
 TR_ResolvedJ9Method::handleUnresolvedVirtualMethodInCP(int32_t cpIndex, bool * unresolvedInCP)
    {
+   }
+
+TR_OpaqueMethodBlock *
+TR_ResolvedJ9Method::getTargetMethodFromMemberName(uintptr_t * invokeCacheArray, bool * isInvokeCacheAppendixNull)
+   {
+   TR_OpaqueMethodBlock *targetJ9MethodBlock = NULL;
+
+#if defined(J9VM_OPT_OPENJDK_METHODHANDLE)
+   TR::VMAccessCriticalSection getTargetMethodCS(fej9());
+   targetJ9MethodBlock = fej9()->targetMethodFromMemberName((uintptr_t) fej9()->getReferenceElement(*invokeCacheArray, JSR292_invokeCacheArrayMemberNameIndex));
+   // if the callSite table entry / method type table entry is resolved,
+   // we can check if the appendix object is null,
+   // in which case the appendix object must not be pushed to stack
+   auto appendixObject = fej9()->getReferenceElement(*invokeCacheArray, JSR292_invokeCacheArrayAppendixIndex);
+   if (isInvokeCacheAppendixNull && !appendixObject)
+      *isInvokeCacheAppendixNull = true;
+#endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
+
+   return targetJ9MethodBlock;
    }
 
 TR_ResolvedMethod *
@@ -7006,13 +7066,12 @@ TR_ResolvedJ9Method::getResolvedDynamicMethod(TR::Compilation * comp, I_32 callS
    J9UTF8                *signature    = J9ROMNAMEANDSIGNATURE_SIGNATURE(nameAndSig);
 
 #if defined(J9VM_OPT_OPENJDK_METHODHANDLE)
-   if (isInvokeCacheAppendixNull)
-      *isInvokeCacheAppendixNull = false;
+   bool invokeCacheAppendixNull = false;
 
    if (!isUnresolvedEntry)
       {
-      TR_OpaqueMethodBlock * targetJ9MethodBlock = NULL;
       uintptr_t * invokeCacheArray = (uintptr_t *) callSiteTableEntryAddress(callSiteIndex);
+
       // invokedynamic resolution can either result in a valid entry in the corresponding CallSite table slot if successful,
       // or an exception object otherwise. The CallSite table entry is a two-element array containing the MemberName
       // and appendix objects necessary for constructing a resolved invokedynamic adapter method call.
@@ -7023,14 +7082,21 @@ TR_ResolvedJ9Method::getResolvedDynamicMethod(TR::Compilation * comp, I_32 callS
          comp->failCompilation<TR::CompilationException>("Invalid CallSite table entry for invokedynamic");
          }
 
+      TR_OpaqueMethodBlock * targetJ9MethodBlock = getTargetMethodFromMemberName(invokeCacheArray, &invokeCacheAppendixNull);
+
+      if (comp->compileRelocatableCode())
          {
-         TR::VMAccessCriticalSection getResolvedDynamicMethod(fej9());
-         targetJ9MethodBlock = fej9()->targetMethodFromMemberName((uintptr_t) fej9()->getReferenceElement(*invokeCacheArray, JSR292_invokeCacheArrayMemberNameIndex)); // this will not work in AOT or JITServer
-         // if the callSite table entry is resolved, we can check if the appendix object is null,
-         // in which case the appendix object must not be pushed to stack
-         uintptr_t appendixObject = (uintptr_t) fej9()->getReferenceElement(*invokeCacheArray, JSR292_invokeCacheArrayAppendixIndex);
-         if (isInvokeCacheAppendixNull && !appendixObject) *isInvokeCacheAppendixNull = true;
+         bool valid =
+            comp->getSymbolValidationManager()->addDynamicMethodFromCallsiteIndex(
+               targetJ9MethodBlock,
+               getNonPersistentIdentifier(),
+               callSiteIndex,
+               invokeCacheAppendixNull);
+
+         if (!valid)
+            comp->failCompilation<J9::AOTHasInvokeHandle>("Failed to add validation record for resolved dynamic method %p", targetJ9MethodBlock);
          }
+
       result = fej9()->createResolvedMethod(comp->trMemory(), targetJ9MethodBlock, this);
       }
    else
@@ -7044,6 +7110,9 @@ TR_ResolvedJ9Method::getResolvedDynamicMethod(TR::Compilation * comp, I_32 callS
       char * linkToStaticSignature = _fe->getSignatureForLinkToStaticForInvokeDynamic(comp, signature, signatureLength);
       result = _fe->createResolvedMethodWithSignature(comp->trMemory(), dummyInvoke, NULL, linkToStaticSignature, signatureLength, this);
       }
+
+   if (isInvokeCacheAppendixNull)
+      *isInvokeCacheAppendixNull = invokeCacheAppendixNull;
 #else
    TR_OpaqueMethodBlock *dummyInvokeExact = _fe->getMethodFromName("java/lang/invoke/MethodHandle", "invokeExact", JSR292_invokeExactSig);
    result = _fe->createResolvedMethodWithSignature(comp->trMemory(), dummyInvokeExact, NULL, utf8Data(signature), J9UTF8_LENGTH(signature), this);
@@ -7081,19 +7150,27 @@ TR_ResolvedJ9Method::getResolvedHandleMethod(TR::Compilation * comp, I_32 cpInde
 #if defined(J9VM_OPT_OPENJDK_METHODHANDLE)
    J9UTF8                *signature    = J9ROMNAMEANDSIGNATURE_SIGNATURE(nameAndSig);
 
-   if (isInvokeCacheAppendixNull)
-      *isInvokeCacheAppendixNull = false;
+   bool invokeCacheAppendixNull = false;
 
    if (!isUnresolvedEntry)
       {
       uintptr_t * invokeCacheArray = (uintptr_t *) methodTypeTableEntryAddress(cpIndex);
-      TR_OpaqueMethodBlock * targetJ9MethodBlock = NULL;
+
+      TR_OpaqueMethodBlock * targetJ9MethodBlock = getTargetMethodFromMemberName(invokeCacheArray, &invokeCacheAppendixNull);
+
+      if (comp->compileRelocatableCode())
          {
-         TR::VMAccessCriticalSection getResolvedHandleMethod(fej9());
-         targetJ9MethodBlock = fej9()->targetMethodFromMemberName((uintptr_t) fej9()->getReferenceElement(*invokeCacheArray, JSR292_invokeCacheArrayMemberNameIndex)); // this will not work in AOT or JITServer
-         uintptr_t appendixObject = (uintptr_t) fej9()->getReferenceElement(*invokeCacheArray, JSR292_invokeCacheArrayAppendixIndex);
-         if (isInvokeCacheAppendixNull && !appendixObject) *isInvokeCacheAppendixNull = true;
+         bool valid =
+            comp->getSymbolValidationManager()->addHandleMethodFromCPIndex(
+               targetJ9MethodBlock,
+               getNonPersistentIdentifier(),
+               cpIndex,
+               invokeCacheAppendixNull);
+
+         if (!valid)
+            comp->failCompilation<J9::AOTHasInvokeHandle>("Failed to add validation record for resolved handle method %p", targetJ9MethodBlock);
          }
+
       result = fej9()->createResolvedMethod(comp->trMemory(), targetJ9MethodBlock, this);
       }
    else
@@ -7107,6 +7184,9 @@ TR_ResolvedJ9Method::getResolvedHandleMethod(TR::Compilation * comp, I_32 cpInde
       char * linkToStaticSignature = _fe->getSignatureForLinkToStaticForInvokeHandle(comp, signature, signatureLength);
       result = _fe->createResolvedMethodWithSignature(comp->trMemory(), dummyInvoke, NULL, linkToStaticSignature, signatureLength, this);
       }
+
+   if (isInvokeCacheAppendixNull)
+      *isInvokeCacheAppendixNull = invokeCacheAppendixNull;
 #else
 
    TR_OpaqueMethodBlock *dummyInvokeExact = _fe->getMethodFromName("java/lang/invoke/MethodHandle", "invokeExact", JSR292_invokeExactSig);
@@ -8069,7 +8149,7 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                   sourceType = "Ljava/lang/Object;";
                   break;
                default:
-                  sprintf(sourceBuf, "%c", sourceSig[0]);
+                  snprintf(sourceBuf, sizeof(sourceBuf), "%c", sourceSig[0]);
                   break;
                }
             switch (targetSig[0])
@@ -8080,7 +8160,7 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                   targetType = "Ljava/lang/Object;";
                   break;
                default:
-                  sprintf(targetBuf, "%c", targetSig[0]);
+                  snprintf(targetBuf, sizeof(targetBuf), "%c", targetSig[0]);
                   break;
                }
 
@@ -8090,10 +8170,10 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                {
                char methodName[30], methodSignature[50];
                if ((sourceType[0] == 'L') && isExplicit)
-                  sprintf(methodName, "explicitObject2%s", targetName);
+                  snprintf(methodName, sizeof(methodName), "explicitObject2%s", targetName);
                else
-                  sprintf(methodName, "%s2%s", sourceName, targetName);
-               sprintf(methodSignature, "(%s)%s", sourceType, targetType);
+                  snprintf(methodName, sizeof(methodName), "%s2%s", sourceName, targetName);
+               snprintf(methodSignature, sizeof(methodSignature), "(%s)%s", sourceType, targetType);
                TR::SymbolReference *methodSymRef = comp()->getSymRefTab()->methodSymRefFromName(_methodSymbol,
                                                                                                 "java/lang/invoke/ConvertHandle$FilterHelpers",
                                                                                                 methodName,
@@ -8414,11 +8494,11 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                      {
                      case 'L':
                      case '[':
-                        sprintf(extraName, "extra_L");
+                        snprintf(extraName, sizeof(extraName), "extra_L");
                         extraSignature = artificialSignature(stackAlloc, "(L" JSR292_ArgumentMoverHandle ";I)Ljava/lang/Object;");
                         break;
                      default:
-                        sprintf(extraName, "extra_%c", argType[0]);
+                        snprintf(extraName, sizeof(extraName), "extra_%c", argType[0]);
                         extraSignature = artificialSignature(stackAlloc, "(L" JSR292_ArgumentMoverHandle ";I).@", nextHandleSignature, i);
                         break;
                      }
@@ -8497,11 +8577,11 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                      {
                      case 'L':
                      case '[':
-                        sprintf(extraName, "extra_L");
+                        snprintf(extraName, sizeof(extraName), "extra_L");
                         extraSignature = artificialSignature(stackAlloc, "(L" JSR292_ArgumentMoverHandle ";I)Ljava/lang/Object;");
                         break;
                      default:
-                        sprintf(extraName, "extra_%c", argType[0]);
+                        snprintf(extraName, sizeof(extraName), "extra_%c", argType[0]);
                         extraSignature = artificialSignature(stackAlloc, "(L" JSR292_ArgumentMoverHandle ";I).@", nextHandleSignature, i);
                         break;
                      }
@@ -8837,11 +8917,11 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
             int32_t arrayRomClassNameLength;
             char *arrayRomClassNameChars = fej9->getClassNameChars((TR_OpaqueClassBlock*)arrayJ9Class, arrayRomClassNameLength);
             TR_ASSERT(arrayRomClassNameLength == 2, "Every array romclass '%.*s' should be of the form [X where X is a single character", arrayRomClassNameLength, arrayRomClassNameChars);
-            sprintf(arrayClassSignature+arity-1, "%.*s", arrayRomClassNameLength, arrayRomClassNameChars);
+            snprintf(arrayClassSignature+arity-1, leafClassNameLength + 4, "%.*s", arrayRomClassNameLength, arrayRomClassNameChars);
             }
          else
             {
-            sprintf(arrayClassSignature+arity, "L%.*s;", leafClassNameLength, leafClassNameChars);
+            snprintf(arrayClassSignature+arity, leafClassNameLength + 3, "L%.*s;", leafClassNameLength, leafClassNameChars);
             }
 
          if (comp()->getOption(TR_TraceILGen))

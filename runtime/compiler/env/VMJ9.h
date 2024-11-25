@@ -243,6 +243,7 @@ public:
    virtual bool needsContiguousCodeAndDataCacheAllocation() { return false; }
    virtual bool supportsJitMethodEntryAlignment() { return true; }
    virtual bool canUseSymbolValidationManager() { return false; }
+   virtual bool canTrackAOTDependencies() { return false; }
 
 /////
    // Inlining optimization
@@ -669,6 +670,7 @@ public:
 
    virtual TR_OpaqueClassBlock *getClassFromJavaLangClass(uintptr_t objectPointer);
    virtual TR_arrayTypeCode    getPrimitiveArrayTypeCode(TR_OpaqueClassBlock* clazz);
+   virtual TR::DataType        getClassPrimitiveDataType(TR_OpaqueClassBlock* clazz);
    virtual TR_OpaqueClassBlock * getSystemClassFromClassName(const char * name, int32_t length, bool callSiteVettedForAOT=false) { return 0; }
    virtual TR_OpaqueClassBlock * getByteArrayClass();
 
@@ -1631,6 +1633,7 @@ public:
 
    // replacing calls to isAOT
    virtual bool               canUseSymbolValidationManager() { return true; }
+   virtual bool               canTrackAOTDependencies()                       { return true; }
    virtual bool               supportsCodeCacheSnippets()                     { return false; }
    virtual bool               needClassAndMethodPointerRelocations()          { return true; }
    virtual bool               inlinedAllocationsMustBeVerified()              { return true; }

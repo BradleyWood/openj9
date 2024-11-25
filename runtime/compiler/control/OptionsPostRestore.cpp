@@ -180,6 +180,8 @@ J9::OptionsPostRestore::iterateOverExternalOptions()
          case J9::ExternalOptions::XXplusHealthProbes:
          case J9::ExternalOptions::XXminusHealthProbes:
          case J9::ExternalOptions::XXJITServerHealthProbePortOption:
+         case J9::ExternalOptions::XXplusTrackAOTDependencies:
+         case J9::ExternalOptions::XXminusTrackAOTDependencies:
             {
             // do nothing, consume them to prevent errors
             FIND_AND_CONSUME_RESTORE_ARG(OPTIONAL_LIST_MATCH, optString, 0);
@@ -476,7 +478,7 @@ J9::OptionsPostRestore::shouldInvalidateCompiledMethod(J9Method *method, TR_J9VM
 
       if (methodSignature)
          {
-         sprintf(methodSignature, "%.*s.%.*s%.*s",
+         snprintf(methodSignature, len, "%.*s.%.*s%.*s",
                J9UTF8_LENGTH(className), utf8Data(className),
                J9UTF8_LENGTH(name), utf8Data(name),
                J9UTF8_LENGTH(signature), utf8Data(signature));

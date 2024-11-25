@@ -57,6 +57,7 @@
 #include "control/CompilationStrategy.hpp"
 #include "env/ClassLoaderTable.hpp"
 #include "env/CompilerEnv.hpp"
+#include "env/DependencyTable.hpp"
 #include "env/IO.hpp"
 #include "env/J2IThunk.hpp"
 #include "env/PersistentCHTable.hpp"
@@ -199,7 +200,7 @@ TR::OptionSet *findOptionSet(J9Method *method, bool isAOT)
 
    if (methodSignature)
       {
-      sprintf(methodSignature, "%.*s.%.*s%.*s", J9UTF8_LENGTH(className), utf8Data(className), J9UTF8_LENGTH(name), utf8Data(name), J9UTF8_LENGTH(signature), utf8Data(signature));
+      snprintf(methodSignature, len, "%.*s.%.*s%.*s", J9UTF8_LENGTH(className), utf8Data(className), J9UTF8_LENGTH(name), utf8Data(name), J9UTF8_LENGTH(signature), utf8Data(signature));
 
       TR_FilterBST * filter = 0;
       if (TR::Options::getDebug() && TR::Options::getDebug()->getCompilationFilters())
@@ -469,7 +470,7 @@ static void jitHookInitializeSendTarget(J9HookInterface * * hook, UDATA eventNum
       if (sigLen < 1024)
          {
          char sigC[1024];
-         sigLen = sprintf(sigC, "%.*s.%.*s%.*s",
+         snprintf(sigC, sizeof(sigC), "%.*s.%.*s%.*s",
                            J9UTF8_LENGTH(className), utf8Data(className),
                            J9UTF8_LENGTH(name), utf8Data(name),
                            J9UTF8_LENGTH(signature), utf8Data(signature));
@@ -565,20 +566,37 @@ static void jitHookInitializeSendTarget(J9HookInterface * * hook, UDATA eventNum
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
                )
                {
-               int32_t scount = optionsAOT->getInitialSCount();
-               uint16_t newScount = 0;
-               if (sc && sc->isHint(method, TR_HintFailedValidation, &newScount))
+               if (auto dependencyTable = compInfo->getPersistentInfo()->getAOTDependencyTable())
                   {
-                  if ((scount == TR_QUICKSTART_INITIAL_SCOUNT) || (scount == TR_INITIAL_SCOUNT))
-                     { // If scount is not user specified (coarse way due to info being lost from options parsing)
-                     // TODO: Is casting the best thing to do here?
-                     scount= std::min(getCount(romMethod, optionsJIT, optionsAOT), static_cast<int32_t>(newScount) ); // Find what would've been normal count for this method and
-                     // make sure new scount isn't larger than that
-                     if (optionsAOT->getVerboseOption(TR_VerboseSCHints) || optionsJIT->getVerboseOption(TR_VerboseSCHints))
-                        TR_VerboseLog::writeLineLocked(TR_Vlog_SCHINTS,"Found hint in sc, increase scount to: %d, wanted scount: %d", scount, newScount);
-                     }
+                  bool dependenciesSatisfied = false;
+                  // TODO: Obey user counts if they are set for this method
+                  //
+                  // TODO: The initial count for unsatisfied dependencies should
+                  // be revisited. It can likely be lower, particularly if AOT
+                  // loads are suppressed if dependencies are unsatisfied,
+                  // though remember that counts can decrease faster in the warm
+                  // run due to sampling.
+                  if (dependencyTable->trackMethod(vmThread, method, romMethod, dependenciesSatisfied))
+                     count = dependenciesSatisfied ? 0 : TR_DEFAULT_INITIAL_COUNT;
                   }
-               count = scount;
+
+               if (count == -1)
+                  {
+                  int32_t scount = optionsAOT->getInitialSCount();
+                  uint16_t newScount = 0;
+                  if (sc && sc->isHint(method, TR_HintFailedValidation, &newScount))
+                     {
+                     if ((scount == TR_QUICKSTART_INITIAL_SCOUNT) || (scount == TR_INITIAL_SCOUNT))
+                        { // If scount is not user specified (coarse way due to info being lost from options parsing)
+                        // TODO: Is casting the best thing to do here?
+                        scount= std::min(getCount(romMethod, optionsJIT, optionsAOT), static_cast<int32_t>(newScount) ); // Find what would've been normal count for this method and
+                        // make sure new scount isn't larger than that
+                        if (optionsAOT->getVerboseOption(TR_VerboseSCHints) || optionsJIT->getVerboseOption(TR_VerboseSCHints))
+                           TR_VerboseLog::writeLineLocked(TR_Vlog_SCHINTS,"Found hint in sc, increase scount to: %d, wanted scount: %d", scount, newScount);
+                        }
+                     }
+                  count = scount;
+                  }
                compInfo->incrementNumMethodsFoundInSharedCache();
                }
             // AOT Body not in SCC, so scount was not set
@@ -746,7 +764,7 @@ static void jitHookInitializeSendTarget(J9HookInterface * * hook, UDATA eventNum
       J9UTF8 * className = J9ROMCLASS_CLASSNAME(J9_CLASS_FROM_METHOD(method)->romClass);
       J9UTF8 * name      = J9ROMMETHOD_NAME(J9_ROM_METHOD_FROM_RAM_METHOD(method));
       J9UTF8 * signature = J9ROMMETHOD_SIGNATURE(J9_ROM_METHOD_FROM_RAM_METHOD(method));
-      int32_t sigLen = sprintf(buf, "%.*s.%.*s%.*s", J9UTF8_LENGTH(className), utf8Data(className), J9UTF8_LENGTH(name), utf8Data(name), J9UTF8_LENGTH(signature), utf8Data(signature));
+      snprintf(buf, sizeof(buf), "%.*s.%.*s%.*s", J9UTF8_LENGTH(className), utf8Data(className), J9UTF8_LENGTH(name), utf8Data(name), J9UTF8_LENGTH(signature), utf8Data(signature));
       printf("Initial: Signature %s Count %d isLoopy %d isAOT %" OMR_PRIuPTR " is in SCC %d SCCContainsProfilingInfo %d \n",buf,TR::CompilationInfo::getInvocationCount(method),J9ROMMETHOD_HAS_BACKWARDS_BRANCHES(romMethod),
             TR::Options::sharedClassCache() ? jitConfig->javaVM->sharedClassConfig->existsCachedCodeForROMMethod(vmThread, romMethod) : 0,
             TR::Options::sharedClassCache() ? TR_J9VMBase::get(jitConfig, vmThread, TR_J9VMBase::AOT_VM)->sharedCache()->isClassInSharedCache(J9_CLASS_FROM_METHOD(method)) : 0,containsInfo) ; fflush(stdout);
@@ -1740,7 +1758,7 @@ static void initThreadAfterCreation(J9VMThread *vmThread)
          char fileName[64];
          IDATA tracefp= -1;
 
-         sprintf(fileName, "%s_" POINTER_PRINTF_FORMAT, pJitConfig->itraceFileNamePrefix, vmThread);
+         snprintf(fileName, sizeof(fileName), "%s_" POINTER_PRINTF_FORMAT, pJitConfig->itraceFileNamePrefix, vmThread);
 
          if ((tracefp = j9file_open(fileName, EsOpenWrite | EsOpenAppend | EsOpenCreate, 0644)) == -1)
             {
@@ -2316,6 +2334,8 @@ static void jitHookClassUnload(J9HookInterface * * hookInterface, UDATA eventNum
          deserializer->invalidateClass(vmThread, j9clazz);
       }
 #endif
+   if (auto dependencyTable = compInfo->getPersistentInfo()->getAOTDependencyTable())
+      dependencyTable->invalidateUnloadedClass(clazz);
    }
 #endif /* defined (J9VM_GC_DYNAMIC_CLASS_UNLOADING)*/
 
@@ -2632,6 +2652,9 @@ void jitClassesRedefined(J9VMThread * currentThread, UDATA classCount, J9JITRede
       setElaboratedClassPair(&elaboratedPair, classPair); // affects oldClass, etc.
       methodCount = classPair->methodCount;
       methodList = classPair->methodList;
+
+      if (auto dependencyTable = compInfo->getPersistentInfo()->getAOTDependencyTable())
+         dependencyTable->invalidateRedefinedClass(table, fe, oldClass, freshClass);
 
       // Do this before modifying the CHTable
       if (table && table->isActive() && TR::Options::sharedClassCache() && TR::Options::getCmdLineOptions()->getOption(TR_EnableClassChainValidationCaching))
@@ -3804,6 +3827,19 @@ void jitHookClassLoadHelper(J9VMThread *vmThread,
       deserializer->onClassLoad(cl, vmThread);
 #endif /* defined(J9VM_OPT_JITSERVER) */
 
+   if (auto dependencyTable = compInfo->getPersistentInfo()->getAOTDependencyTable())
+      {
+      getClassNameIfNecessary(vm, clazz, className, classNameLen);
+      // These two classes and java/lang/J9VMInternals$ClassInitializationLock are
+      // the only ones that are marked initialized without going through the normal
+      // hooks (see initializeRequiredClasses() in jclcinit.c), and that last class
+      // is never stored in the SCC. For these two, this is both a load and an
+      // initialization.
+      bool isClassInitialization = (classNameLen == 17 && !memcmp(className, "com/ibm/oti/vm/VM", classNameLen)) ||
+                                   (classNameLen == 23 && !memcmp(className, "java/lang/J9VMInternals", classNameLen));
+      dependencyTable->classLoadEvent(clazz, true, isClassInitialization);
+      }
+
    // Update the count for the newInstance
    //
    TR::Options * options = TR::Options::getCmdLineOptions();
@@ -3959,6 +3995,10 @@ static void jitHookClassInitialize(J9HookInterface * * hookInterface, UDATA even
    J9JITConfig * jitConfig = vmThread->javaVM->jitConfig;
    if (jitConfig == 0)
       return; // if a hook gets called after freeJitConfig then not much else we can do
+
+   TR::CompilationInfo * compInfo = TR::CompilationInfo::get(jitConfig);
+   if (auto dependencyTable = compInfo->getPersistentInfo()->getAOTDependencyTable())
+      dependencyTable->classLoadEvent((TR_OpaqueClassBlock *)cl, false, true);
 
    loadingClasses = false;
    }
@@ -4590,7 +4630,7 @@ void memoryDisclaimLogic(TR::CompilationInfo *compInfo, uint64_t crtElapsedTime,
    if (sharedCache && sharedCache->isDisclaimEnabled())
       {
       // Disclaim if there was a large time interval since the last disclaim
-      if (crtElapsedTime > lastSCCDisclaimTime + 12 * TR::Options::_minTimeBetweenMemoryDisclaims)
+      if (crtElapsedTime > lastSCCDisclaimTime + TR::Options::_minTimeBetweenMemoryDisclaims)
          {
          disclaimSharedClassCache(sharedCache, crtElapsedTime);
          lastSCCDisclaimTime = crtElapsedTime;
@@ -4601,12 +4641,12 @@ void memoryDisclaimLogic(TR::CompilationInfo *compInfo, uint64_t crtElapsedTime,
    if (TR_DataCacheManager::getManager()->isDisclaimEnabled())
       {
       // Ensure we don't do it too often
-      if (crtElapsedTime > lastDataCacheDisclaimTime + TR::Options::_minTimeBetweenMemoryDisclaims)
+      if (crtElapsedTime > lastDataCacheDisclaimTime + 10 * TR::Options::_minTimeBetweenMemoryDisclaims)
          {
          // Disclaim if at least one data cache has been allocated since the last disclaim
          // or if there was a large time interval since the last disclaim
          if (TR_DataCacheManager::getManager()->numAllocatedCaches() > lastNumAllocatedDataCaches ||
-             crtElapsedTime > lastDataCacheDisclaimTime + 12 * TR::Options::_minTimeBetweenMemoryDisclaims)
+             crtElapsedTime > lastDataCacheDisclaimTime + 120 * TR::Options::_minTimeBetweenMemoryDisclaims)
             {
             disclaimDataCaches(crtElapsedTime);
             lastDataCacheDisclaimTime = crtElapsedTime; // Update the time when disclaim was last performed
@@ -4619,12 +4659,12 @@ void memoryDisclaimLogic(TR::CompilationInfo *compInfo, uint64_t crtElapsedTime,
    if (TR::CodeCacheManager::instance()->isDisclaimEnabled())
       {
       // Ensure we don't do it too often
-      if (crtElapsedTime > lastCodeCacheDisclaimTime + TR::Options::_minTimeBetweenMemoryDisclaims)
+      if (crtElapsedTime > lastCodeCacheDisclaimTime + 10 * TR::Options::_minTimeBetweenMemoryDisclaims)
          {
          // Disclaim if at least one code cache has been allocated since the last disclaim
          // or if there was a large time interval since the last disclaim
          if (TR::CodeCacheManager::instance()->getCurrentNumberOfCodeCaches() > lastNumAllocatedCodeCaches ||
-             crtElapsedTime > lastCodeCacheDisclaimTime + 12 * TR::Options::_minTimeBetweenMemoryDisclaims)
+             crtElapsedTime > lastCodeCacheDisclaimTime + 120 * TR::Options::_minTimeBetweenMemoryDisclaims)
             {
             static OMR::RSSReport *rssReport = OMR::RSSReport::instance();
 
@@ -4650,7 +4690,7 @@ void memoryDisclaimLogic(TR::CompilationInfo *compInfo, uint64_t crtElapsedTime,
       TR::PersistentAllocator * iprofilerAllocator = TR_IProfiler::allocator();
       if (iprofilerAllocator->isDisclaimEnabled())
          {
-         if (crtElapsedTime > lastIProfilerDisclaimTime + TR::Options::_minTimeBetweenMemoryDisclaims &&
+         if (crtElapsedTime > lastIProfilerDisclaimTime + 10 * TR::Options::_minTimeBetweenMemoryDisclaims &&
              // Avoid disclaiming IProfiler segments if IProfiler is still active
              returnIprofilerState() == IPROFILING_STATE_OFF &&
              // Avoid disclaiming if compilations are still to pe performed

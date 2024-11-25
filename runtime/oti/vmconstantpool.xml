@@ -231,7 +231,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-ex
 
 	<!-- Common field references shared between OpenJ9 and OpenJDK Thread. -->
 	<fieldref class="java/lang/Thread" name="contextClassLoader" signature="Ljava/lang/ClassLoader;"/>
-	<fieldref class="java/lang/Thread" name="inheritedAccessControlContext" signature="Ljava/security/AccessControlContext;"/>
+	<fieldref class="java/lang/Thread" name="inheritedAccessControlContext" signature="Ljava/security/AccessControlContext;" versions="8-23"/>
 	<fieldref class="java/lang/Thread" name="name" signature="Ljava/lang/String;"/>
 	<fieldref class="java/lang/Thread" name="parkBlocker" signature="Ljava/lang/Object;"/>
 	<fieldref class="java/lang/Thread" name="tid" signature="J"/>
@@ -283,9 +283,8 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-ex
 	<fieldref class="java/lang/reflect/Field" name="type" signature="Ljava/lang/Class;"/>
 	<fieldref class="java/lang/reflect/Field" name="signature" signature="Ljava/lang/String;"/>
 	<fieldref class="java/lang/reflect/Field" name="modifiers" signature="I"/>
-	<fieldref class="java/lang/reflect/Field" name="trustedFinal" signature="Z" versions="15-">
-		<fieldalias name="flags" signature="I" flags="opt_valhallaValueTypes"/>
-	</fieldref>
+	<fieldref class="java/lang/reflect/Field" name="trustedFinal" signature="Z" versions="15-" flags="!opt_valhallaValueTypes"/>
+	<fieldref class="java/lang/reflect/Field" name="flags" signature="I" flags="opt_valhallaValueTypes"/>
 	<fieldref class="java/lang/reflect/Field" name="annotations" signature="[B"/>
 	<fieldref class="java/lang/reflect/Field" name="slot" signature="I"/>
 	<fieldref class="java/lang/reflect/Field" name="clazz" signature="Ljava/lang/Class;"/>

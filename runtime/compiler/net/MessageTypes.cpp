@@ -90,6 +90,7 @@ const char *messageNames[] =
    "ResolvedMethod_getResolvedImplementorMethods",
    "ResolvedMethod_isFieldNullRestricted",
    "ResolvedMethod_isFieldFlattened",
+   "ResolvedMethod_getTargetMethodFromMemberName",
    "ResolvedRelocatableMethod_createResolvedRelocatableJ9Method",
    "ResolvedRelocatableMethod_fieldAttributes",
    "ResolvedRelocatableMethod_staticAttributes",
@@ -258,6 +259,8 @@ const char *messageNames[] =
    "KnownObjectTable_createSymRefWithKnownObject",
    "KnownObjectTable_getReferenceField",
    "KnownObjectTable_getKnownObjectTableDumpInfo",
+   "KnownObjectTable_getOpaqueClass",
+   "KnownObjectTable_getVectorBitSize",
    "AOTCache_getROMClassBatch",
    "AOTCacheMap_request",
    "AOTCacheMap_reply"

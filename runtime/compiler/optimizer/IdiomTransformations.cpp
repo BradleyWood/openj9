@@ -1390,12 +1390,12 @@ checkByteToChar(TR::Compilation *comp, TR::Node *iorNode, TR::Node *&inputNode, 
       //       if index is i then inputNode = bloadi child of imul
       //       else fail
       //
-      TR::Node *ibloadNode = imulNode->getFirstChild()->skipConversions();
+      TR::Node *bloadiNode = imulNode->getFirstChild()->skipConversions();
       bool plusOne = false;
       bool matchPattern = false;
-      if (ibloadNode->getOpCodeValue() == TR::bloadi)
+      if (bloadiNode->getOpCodeValue() == TR::bloadi)
          {
-         TR::Node *subNode = ibloadNode->getFirstChild()->getSecondChild();
+         TR::Node *subNode = bloadiNode->getFirstChild()->getSecondChild();
          int32_t hdrSize = TR::Compiler->om.contiguousArrayHeaderSizeInBytes() + 1;
          if (subNode->getOpCode().isSub() &&
                subNode->getSecondChild()->getOpCode().isLoadConst())
@@ -1425,7 +1425,7 @@ checkByteToChar(TR::Compilation *comp, TR::Node *iorNode, TR::Node *&inputNode, 
                   {
                   if (!plusOne)
                      {
-                     inputNode = ibloadNode->getFirstChild();
+                     inputNode = bloadiNode->getFirstChild();
                      return true;
                      }
                   else
@@ -3435,9 +3435,10 @@ TR_PCISCGraph *
 makeCopyingTROxGraph(TR::Compilation *c, int32_t ctrl, int pattern)
    {
    TR_ASSERT(pattern == 0 || pattern == 1, "not implemented");
-   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(16);
-   sprintf(name, "CopyingTROx(%d)",pattern);
-   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, 16);
+   size_t nameSize = 16;
+   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(nameSize);
+   snprintf(name, nameSize, "CopyingTROx(%d)",pattern);
+   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, nameSize);
    /****************************************************************************    opc               id        dagId #cfg #child other/pred/children */
    TR_PCISCNode *byteArray  = new (PERSISTENT_NEW) TR_PCISCNode(c->trMemory(), TR_arraybase, TR::NoType,  tgt->incNumNodes(),16,   0,   0,    0);
    tgt->addNode(byteArray); // src array base
@@ -3542,9 +3543,10 @@ TR_PCISCGraph *
 makeCopyingTROTInduction1Graph(TR::Compilation *c, int32_t ctrl, int32_t pattern)
    {
    TR_ASSERT(pattern == 0 || pattern == 1, "not implemented");
-   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(26);
-   sprintf(name, "CopyingTROTInduction1(%d)",pattern);
-   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, 16);
+   size_t nameSize = 26;
+   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(nameSize);
+   snprintf(name, nameSize, "CopyingTROTInduction1(%d)",pattern);
+   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, nameSize);
    /*********************************************************************    opc               id        dagId #cfg #child other/pred/children */
    TR_PCISCNode *v0  = new (PERSISTENT_NEW) TR_PCISCNode(c->trMemory(), TR_arraybase, TR::NoType, tgt->incNumNodes(), 13,   0,   0,    0);  tgt->addNode(v0); // src array base
    TR_PCISCNode *v1  = new (PERSISTENT_NEW) TR_PCISCNode(c->trMemory(), TR_variable, TR::NoType,  tgt->incNumNodes(), 12,   0,   0,    0);  tgt->addNode(v1); // src array index
@@ -4612,9 +4614,10 @@ TR_PCISCGraph *
 makeCopyingTRTxGraph(TR::Compilation *c, int32_t ctrl, int pattern)
    {
    TR_ASSERT(pattern == 0 || pattern == 1 || pattern == 2, "not implemented");
-   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(16);
-   sprintf(name, "CopyingTRTx(%d)",pattern);
-   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, 16);
+   size_t nameSize = 16;
+   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(nameSize);
+   snprintf(name, nameSize, "CopyingTRTx(%d)",pattern);
+   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, nameSize);
    /***************************************************************************    opc               id        dagId #cfg #child other/pred/children */
    TR_PCISCNode *charArray  = new (PERSISTENT_NEW) TR_PCISCNode(c->trMemory(), TR_arraybase, TR::NoType, tgt->incNumNodes(), 15,   0,   0,    0);
    tgt->addNode(charArray); // src array base
@@ -4856,9 +4859,10 @@ TR_PCISCGraph *
 makeCopyingTRTOInduction1Graph(TR::Compilation *c, int32_t ctrl, int32_t pattern)
    {
    TR_ASSERT(pattern == 0 || pattern == 1 || pattern == 2, "not implemented");
-   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(26);
-   sprintf(name, "CopyingTRTOInduction1(%d)",pattern);
-   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, 16);
+   size_t nameSize = 26;
+   char *name = (char *)TR_MemoryBase::jitPersistentAlloc(nameSize);
+   snprintf(name, nameSize, "CopyingTRTOInduction1(%d)",pattern);
+   TR_PCISCGraph *tgt = new (PERSISTENT_NEW) TR_PCISCGraph(c->trMemory(), name, 0, nameSize);
    /*********************************************************************    opc               id        dagId #cfg #child other/pred/children */
    TR_PCISCNode *v0  = new (PERSISTENT_NEW) TR_PCISCNode(c->trMemory(), TR_arraybase, TR::NoType, tgt->incNumNodes(), 13,   0,   0,    0);  tgt->addNode(v0); // src array base
    TR_PCISCNode *v1  = new (PERSISTENT_NEW) TR_PCISCNode(c->trMemory(), TR_variable, TR::NoType,  tgt->incNumNodes(), 12,   0,   0,    0);  tgt->addNode(v1); // src array index
@@ -5947,13 +5951,13 @@ CISCTransform2ArrayCopySub(TR_CISCTransformer *trans, TR::Node *indexRepNode, TR
       return false;
       }
 
-   TR::Node *optionalIistore = NULL;
+   TR::Node *optionalIstorei = NULL;
    if (P->getImportantNode(4))
       {
-      TR_CISCNode *optionalCISCIistore = trans->getP2TInLoopIfSingle(P->getImportantNode(4));
-      if (!optionalCISCIistore)
+      TR_CISCNode *optionalCISCIstorei = trans->getP2TInLoopIfSingle(P->getImportantNode(4));
+      if (!optionalCISCIstorei)
          return false;
-      optionalIistore = optionalCISCIistore->getHeadOfTrNode()->duplicateTree();
+      optionalIstorei = optionalCISCIstorei->getHeadOfTrNode()->duplicateTree();
       }
 
    TR::Node * exitVarNode = createLoad(exitVarRepNode);
@@ -6112,11 +6116,11 @@ CISCTransform2ArrayCopySub(TR_CISCTransformer *trans, TR::Node *indexRepNode, TR
       block->append(theOtherVarUpdateTreeTop);
       }
 
-   if (optionalIistore)
+   if (optionalIstorei)
       {
       TR_ASSERT(theOtherVarUpdateNode != NULL, "error!");
-      optionalIistore->setAndIncChild(1, theOtherVarUpdateNode->getChild(0));
-      block->append(TR::TreeTop::create(comp, optionalIistore));
+      optionalIstorei->setAndIncChild(1, theOtherVarUpdateNode->getChild(0));
+      block->append(TR::TreeTop::create(comp, optionalIstorei));
       }
 
    trans->insertAfterNodes(block);

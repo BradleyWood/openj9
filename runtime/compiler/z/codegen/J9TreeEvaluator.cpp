@@ -858,6 +858,119 @@ J9::Z::TreeEvaluator::pdclearSetSignEvaluator(TR::Node *node, TR::CodeGenerator 
    return TR::TreeEvaluator::pdclearEvaluator(node, cg);
    }
 
+/*
+ * This method inlines the Java API StringCoding.hasNegatives(byte src, int off, int len) using
+ * SIMD instructions.
+ * The method looks like below on Java 17:
+ *
+ *   @IntrinsicCandidate
+ *   public static boolean hasNegatives(byte[] ba, int off, int len) {
+ *       for (int i = off; i < off + len; i++) {
+ *           if (ba[i] < 0) {
+ *               return true;
+ *           }
+ *       }
+ *       return false;
+ *   }
+ * This routine behaves similarly on Java 11 and 21 as well and so is supported on those platforms too.
+ */
+TR::Register*
+J9::Z::TreeEvaluator::inlineStringCodingHasNegatives(TR::Node *node, TR::CodeGenerator *cg)
+   {
+   TR::Register *inputPtrReg = cg->gprClobberEvaluate(node->getChild(0));
+   TR::Register *offsetReg = cg->evaluate(node->getChild(1));
+   TR::Register *lengthReg = cg->evaluate(node->getChild(2));
+
+   TR::LabelSymbol *processMultiple16CharsStart = generateLabelSymbol(cg);
+   TR::LabelSymbol *processMultiple16CharsEnd = generateLabelSymbol(cg);
+   TR::LabelSymbol *cFlowRegionEnd = generateLabelSymbol(cg);
+   TR::LabelSymbol *cFlowRegionStart = generateLabelSymbol(cg);
+   TR::LabelSymbol *processOutOfRangeChar = generateLabelSymbol(cg);
+
+   TR::Register *vInput = cg->allocateRegister(TR_VRF);
+   TR::Register *vUpperLimit = cg->allocateRegister(TR_VRF);
+   TR::Register *vComparison = cg->allocateRegister(TR_VRF);
+   TR::Register *numCharsLeftToProcess = cg->allocateRegister(); // off + len
+   TR::Register *outOfRangeCharIndex = cg->allocateRegister(TR_VRF);
+
+   TR::Register *returnReg = cg->allocateRegister();
+   generateRIInstruction(cg, TR::InstOpCode::LGHI, node, returnReg, 0);
+
+   generateS390LabelInstruction(cg, TR::InstOpCode::label, node, cFlowRegionStart);
+   generateS390CompareAndBranchInstruction(cg, TR::InstOpCode::C, node, lengthReg, 0, TR::InstOpCode::COND_BE, cFlowRegionEnd, false, false);
+   generateRRInstruction(cg, TR::InstOpCode::AGFR, node, inputPtrReg, offsetReg);
+   generateRRInstruction(cg, TR::InstOpCode::LR, node, numCharsLeftToProcess, lengthReg);
+
+   const uint8_t upperLimit = 127;
+   const uint8_t rangeComparison = 0x20; // > comparison
+
+   generateVRIaInstruction(cg, TR::InstOpCode::VREPI, node, vUpperLimit, upperLimit, 0);
+   generateVRIaInstruction(cg, TR::InstOpCode::VREPI, node, vComparison, rangeComparison, 0);
+
+   generateS390CompareAndBranchInstruction(cg, TR::InstOpCode::C, node, numCharsLeftToProcess, 16, TR::InstOpCode::COND_BNH, processMultiple16CharsEnd, false, false);
+
+   generateS390LabelInstruction(cg, TR::InstOpCode::label, node, processMultiple16CharsStart);
+   processMultiple16CharsStart->setStartInternalControlFlow();
+
+   // Load bytes and search for out of range character
+   generateVRXInstruction(cg, TR::InstOpCode::VL, node, vInput, generateS390MemoryReference(inputPtrReg, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg));
+
+   generateVRRdInstruction(cg, TR::InstOpCode::VSTRC, node, outOfRangeCharIndex, vInput, vUpperLimit, vComparison, 0x1, 0);
+
+   // process bad character by setting return register to true and exiting
+   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, processOutOfRangeChar);
+
+   // Update the counters
+   generateRXInstruction(cg, TR::InstOpCode::getLoadAddressOpCode(), node, inputPtrReg, generateS390MemoryReference(inputPtrReg, 16, cg));
+   generateRIInstruction(cg, TR::InstOpCode::AHI, node, numCharsLeftToProcess, -16);
+
+   // Branch back up if we still have more than 16 characters to process.
+   generateS390CompareAndBranchInstruction(cg, TR::InstOpCode::C, node, numCharsLeftToProcess, 16, TR::InstOpCode::COND_BH, processMultiple16CharsStart, false, false);
+
+   generateS390LabelInstruction(cg, TR::InstOpCode::label, node, processMultiple16CharsEnd);
+
+   // Zero out the input register to avoid invalid VSTRC result
+   generateVRIaInstruction(cg, TR::InstOpCode::VGBM, node, vInput, 0, 0 /*unused*/);
+
+   // VLL and VSTL work on indices so we subtract 1
+   generateRIInstruction(cg, TR::InstOpCode::AHI, node, numCharsLeftToProcess, -1);
+   // Load residue bytes and check for out of range character
+   generateVRSbInstruction(cg, TR::InstOpCode::VLL, node, vInput, numCharsLeftToProcess, generateS390MemoryReference(inputPtrReg, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg));
+
+   generateVRRdInstruction(cg, TR::InstOpCode::VSTRC, node, outOfRangeCharIndex, vInput, vUpperLimit, vComparison, 0x1, 0);
+   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, processOutOfRangeChar);
+
+   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BRC, node, cFlowRegionEnd);
+
+   generateS390LabelInstruction(cg, TR::InstOpCode::label, node, processOutOfRangeChar);
+   generateRIInstruction(cg, TR::InstOpCode::LGHI, node, returnReg, 1);
+
+   TR::RegisterDependencyConditions* dependencies = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 7, cg);
+   dependencies->addPostConditionIfNotAlreadyInserted(vInput, TR::RealRegister::AssignAny);
+   dependencies->addPostConditionIfNotAlreadyInserted(outOfRangeCharIndex, TR::RealRegister::AssignAny);
+   dependencies->addPostConditionIfNotAlreadyInserted(vUpperLimit, TR::RealRegister::AssignAny);
+   dependencies->addPostConditionIfNotAlreadyInserted(vComparison, TR::RealRegister::AssignAny);
+   dependencies->addPostConditionIfNotAlreadyInserted(inputPtrReg, TR::RealRegister::AssignAny);
+   dependencies->addPostConditionIfNotAlreadyInserted(numCharsLeftToProcess, TR::RealRegister::AssignAny);
+   dependencies->addPostConditionIfNotAlreadyInserted(returnReg, TR::RealRegister::AssignAny);
+
+   generateS390LabelInstruction(cg, TR::InstOpCode::label, node, cFlowRegionEnd, dependencies);
+   cFlowRegionEnd->setEndInternalControlFlow();
+
+   for (int i = 0; i < node->getNumChildren(); i++)
+      {
+      cg->decReferenceCount(node->getChild(i));
+      }
+
+   cg->stopUsingRegister(vInput);
+   cg->stopUsingRegister(outOfRangeCharIndex);
+   cg->stopUsingRegister(vUpperLimit);
+   cg->stopUsingRegister(vComparison);
+   cg->stopUsingRegister(numCharsLeftToProcess);
+   node->setRegister(returnReg);
+   return returnReg;
+   }
+
 /* Moved from Codegen to FE */
 ///////////////////////////////////////////////////////////////////////////////////
 // Generate code to perform a comparison and branch to a snippet.
@@ -4769,10 +4882,10 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
    TR::LabelSymbol *cFlowRegionDone = generateLabelSymbol(cg);
    TR::LabelSymbol *oolFailLabel = generateLabelSymbol(cg);
 
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
    bool isOffHeapAllocationEnabled = TR::Compiler->om.isOffHeapAllocationEnabled();
    TR::LabelSymbol *populateFirstDimDataAddrSlot = isOffHeapAllocationEnabled ? generateLabelSymbol(cg) : NULL;
-#endif /* defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION) */
+#endif /* defined(J9VM_GC_SPARSE_HEAP_ALLOCATION) */
 
    // oolJumpLabel is a common point that all branches will jump to. From this label, we branch to OOL code.
    // We do this instead of jumping directly to OOL code from mainline because the RA can only handle the case where there's
@@ -4850,7 +4963,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
       iComment("Init 1st dim size field.");
       }
 
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
    if (isOffHeapAllocationEnabled)
       {
       TR_ASSERT_FATAL_WITH_NODE(node,
@@ -4871,7 +4984,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
       cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BRC, node, populateFirstDimDataAddrSlot);
       }
    else
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
       {
       cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BRC, node, cFlowRegionDone);
       }
@@ -4960,7 +5073,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
 
    TR::Register *temp3Reg = cg->allocateRegister();
 
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
    if (isOffHeapAllocationEnabled)
       {
       // Populate dataAddr slot for 2nd dimension zero size array.
@@ -4975,7 +5088,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
          temp3Reg,
          generateS390MemoryReference(temp2Reg, fej9->getOffsetOfDiscontiguousDataAddrField(), cg));
       }
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
 
    // Store 2nd dim element into 1st dim array slot, compress temp2 if needed
    if (comp->target().is64Bit() && comp->useCompressedPointers())
@@ -5000,7 +5113,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
    generateRILInstruction(cg, TR::InstOpCode::SLFI, node, firstDimLenReg, 1);
    generateS390CompareAndBranchInstruction(cg, TR::InstOpCode::CL, node, firstDimLenReg, 0, TR::InstOpCode::COND_BNE, loopLabel, false);
 
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
    if (isOffHeapAllocationEnabled)
       {
       // No offset is needed since 1st dimension array is contiguous.
@@ -5008,7 +5121,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
       generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BRC, node, populateFirstDimDataAddrSlot);
       }
    else
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
       {
       generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BRC, node, cFlowRegionDone);
       }
@@ -5028,7 +5141,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
    generateS390LabelInstruction(cg, TR::InstOpCode::label, node, oolJumpLabel);
    generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BRC, node, oolFailLabel);
 
-#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+#if defined(J9VM_GC_SPARSE_HEAP_ALLOCATION)
    if (isOffHeapAllocationEnabled)
       {
       /* Populate dataAddr slot of 1st dimension array. Arrays of non-zero size
@@ -5048,7 +5161,7 @@ static TR::Register * generateMultianewArrayWithInlineAllocators(TR::Node *node,
          temp3Reg,
          generateS390MemoryReference(targetReg, temp1Reg, fej9->getOffsetOfContiguousDataAddrField(), cg));
       }
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
 
    generateS390LabelInstruction(cg, TR::InstOpCode::label, node, cFlowRegionDone, dependencies);
 
@@ -7649,7 +7762,7 @@ J9::Z::TreeEvaluator::evaluateNULLCHKWithPossibleResolve(TR::Node * node, bool n
 
    // determine if an explicit check is needed
    if (cg->getSupportsImplicitNullChecks()
-         && !firstChild->isUnneededIALoad())
+         && !firstChild->isUnneededAloadi())
       {
       if (opCode.isLoadVar()
             || (cg->comp()->target().is64Bit() && opCode.getOpCodeValue()==TR::l2i)
@@ -11016,7 +11129,7 @@ J9::Z::TreeEvaluator::VMnewEvaluator(TR::Node * node, TR::CodeGenerator * cg)
                   (comp->compileRelocatableCode() && opCode == TR::anewarray) ? classReg : NULL,
                   resReg, enumReg, dataSizeReg, litPoolBaseReg, conditions, cg);
 
-#ifdef J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION
+#ifdef J9VM_GC_SPARSE_HEAP_ALLOCATION
          if (TR::Compiler->om.isOffHeapAllocationEnabled())
             {
             /* Here we'll update dataAddr slot for both fixed and variable length arrays. Fixed length arrays are
@@ -11095,7 +11208,7 @@ J9::Z::TreeEvaluator::VMnewEvaluator(TR::Node * node, TR::CodeGenerator * cg)
                cg->stopUsingRegister(offsetReg);
                }
             }
-#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+#endif /* J9VM_GC_SPARSE_HEAP_ALLOCATION */
 
          // Write Arraylet Pointer
          if (generateArraylets)
@@ -13056,28 +13169,29 @@ J9::Z::TreeEvaluator::inlineConcurrentLinkedQueueTMOffer(TR::Node *node, TR::Cod
 
    bool usesCompressedrefs = comp->useCompressedPointers();
    int32_t shiftAmount = TR::Compiler->om.compressedReferenceShift();
-   static char * disableTMOfferenv = feGetEnv("TR_DisableTMOffer");
-   bool disableTMOffer = (disableTMOfferenv != NULL);
+   static bool disableTMOffer = feGetEnv("TR_DisableTMOffer") != NULL;
 
    classBlock1 = fej9->getClassFromSignature("Ljava/util/concurrent/ConcurrentLinkedQueue$Node;", 49, comp->getCurrentMethod(), true);
    classBlock2 = fej9->getClassFromSignature("Ljava/util/concurrent/ConcurrentLinkedQueue;", 44, comp->getCurrentMethod(), true);
 
-
-   if (classBlock1 && classBlock2)
+   bool canInlineTMOffer = !disableTMOffer;
+   if (classBlock1 != NULL && classBlock2 != NULL)
       {
       offsetNext = fej9->getObjectHeaderSizeInBytes() + fej9->getInstanceFieldOffset(classBlock1, "next", 4, "Ljava/util/concurrent/ConcurrentLinkedQueue$Node;", 49);
       offsetTail = fej9->getObjectHeaderSizeInBytes() + fej9->getInstanceFieldOffset(classBlock2, "tail", 4, "Ljava/util/concurrent/ConcurrentLinkedQueue$Node;", 49);
       }
    else
-      disableTMOffer = true;
+      {
+      canInlineTMOffer = false;
+      }
 
    cursor = generateRIInstruction(cg, TR::InstOpCode::LHI, node, rReturn, 1);
 
-   static char * debugTM= feGetEnv("TR_DebugTM");
+   static bool debugTM= feGetEnv("TR_DebugTM") != NULL;
 
    if (debugTM)
       {
-      if (disableTMOffer)
+      if (!canInlineTMOffer)
          {
          printf ("\nTM: disabling TM CLQ.Offer in %s (%s)", comp->signature(), comp->getHotnessName(comp->getMethodHotness()));
          fflush(stdout);
@@ -13088,14 +13202,16 @@ J9::Z::TreeEvaluator::inlineConcurrentLinkedQueueTMOffer(TR::Node *node, TR::Cod
          fflush(stdout);
          }
       }
+   static bool generateNonConstrainedTMEnvSeq = feGetEnv("TR_UseNonConstrainedTM") != NULL;
 
-   static char * useNonConstrainedTM = feGetEnv("TR_UseNonConstrainedTM");
-   static char * disableNIAI = feGetEnv("TR_DisableNIAI");
+   bool useNonConstrainedTM = generateNonConstrainedTMEnvSeq && comp->target().cpu.supportsFeature(OMR_FEATURE_S390_TRANSACTIONAL_EXECUTION_FACILITY);
+
+   static bool disableNIAI = feGetEnv("TR_DisableNIAI") != NULL;
 
    // the Transaction Diagnostic Block (TDB) is a memory location for the OS to write state info in the event of an abort
    TR::MemoryReference* TDBmemRef = generateS390MemoryReference(cg->getMethodMetaDataRealRegister(), fej9->thisThreadGetTDBOffset(), cg);
 
-   if (!disableTMOffer)
+   if (canInlineTMOffer)
       {
       if (useNonConstrainedTM)
          {
@@ -13197,7 +13313,7 @@ J9::Z::TreeEvaluator::inlineConcurrentLinkedQueueTMOffer(TR::Node *node, TR::Cod
       cursor = generateSInstruction(cg, TR::InstOpCode::TEND, node, generateS390MemoryReference(cg->machine()->getRealRegister(TR::RealRegister::GPR0),0,cg));
       }
 
-   if (useNonConstrainedTM || disableTMOffer)
+   if (useNonConstrainedTM || !canInlineTMOffer)
       cursor = generateS390LabelInstruction(cg, TR::InstOpCode::label, node, failLabel, deps);
 
    genWrtBarForTM(node, cg, rP, rN, rReturn, true);
@@ -13248,28 +13364,33 @@ J9::Z::TreeEvaluator::inlineConcurrentLinkedQueueTMPoll(TR::Node *node, TR::Code
       deps->addPostCondition(rTmp, TR::RealRegister::AssignAny);
       }
 
-   static char * disableTMPollenv = feGetEnv("TR_DisableTMPoll");
-   bool disableTMPoll = disableTMPollenv;
+   static bool disableTMPoll = feGetEnv("TR_DisableTMPoll") != NULL;
 
    classBlock1 = fej9->getClassFromSignature("Ljava/util/concurrent/ConcurrentLinkedQueue;", 44, comp->getCurrentMethod(), true);
    classBlock2 = fej9->getClassFromSignature("Ljava/util/concurrent/ConcurrentLinkedQueue$Node;", 49, comp->getCurrentMethod(), true);
 
-   if (classBlock1 && classBlock2)
+   bool canInlineTMPoll = !disableTMPoll;
+   if (classBlock1 != NULL && classBlock2 != NULL)
       {
       offsetHead = fej9->getObjectHeaderSizeInBytes() + fej9->getInstanceFieldOffset(classBlock1, "head", 4, "Ljava/util/concurrent/ConcurrentLinkedQueue$Node;", 49);
       offsetNext = fej9->getObjectHeaderSizeInBytes() + fej9->getInstanceFieldOffset(classBlock2, "next", 4, "Ljava/util/concurrent/ConcurrentLinkedQueue$Node;", 49);
       offsetItem = fej9->getObjectHeaderSizeInBytes() + fej9->getInstanceFieldOffset(classBlock2, "item", 4, "Ljava/lang/Object;", 18);
       }
    else
-      disableTMPoll = true;
+      {
+      // If we can not get Class object fo ConcurrentLinkedQueue /
+      // ConcurrentLinkedQueue$Node, then we can not inline the intrinsic
+      // operation.
+      canInlineTMPoll = false;
+      }
 
    cursor = generateRRInstruction(cg, TR::InstOpCode::getXORRegOpCode(), node, rE, rE);
 
-   static char * debugTM= feGetEnv("TR_DebugTM");
+   static bool debugTM= feGetEnv("TR_DebugTM") != NULL;
 
    if (debugTM)
       {
-      if (disableTMPoll)
+      if (!canInlineTMPoll)
          {
          printf ("\nTM: disabling TM CLQ.Poll in %s (%s)", comp->signature(), comp->getHotnessName(comp->getMethodHotness()));
          fflush(stdout);
@@ -13281,13 +13402,16 @@ J9::Z::TreeEvaluator::inlineConcurrentLinkedQueueTMPoll(TR::Node *node, TR::Code
          }
       }
 
-   static char * useNonConstrainedTM = feGetEnv("TR_UseNonConstrainedTM");
-   static char * disableNIAI = feGetEnv("TR_DisableNIAI");
+   static bool generateNonConstrainedTMEnvSeq = feGetEnv("TR_UseNonConstrainedTM") != NULL;
+
+   bool useNonConstrainedTM = generateNonConstrainedTMEnvSeq && comp->target().cpu.supportsFeature(OMR_FEATURE_S390_TRANSACTIONAL_EXECUTION_FACILITY);
+
+   static bool disableNIAI = feGetEnv("TR_DisableNIAI") != NULL;
 
    // the Transaction Diagnostic Block (TDB) is a memory location for the OS to write state info in the event of an abort
    TR::MemoryReference* TDBmemRef = generateS390MemoryReference(cg->getMethodMetaDataRealRegister(), fej9->thisThreadGetTDBOffset(), cg);
 
-   if (!disableTMPoll)
+   if (canInlineTMPoll)
       {
       if (useNonConstrainedTM)
          {
@@ -13379,7 +13503,7 @@ J9::Z::TreeEvaluator::inlineConcurrentLinkedQueueTMPoll(TR::Node *node, TR::Code
       cursor = generateSInstruction(cg, TR::InstOpCode::TEND, node, generateS390MemoryReference(cg->machine()->getRealRegister(TR::RealRegister::GPR0),0,cg));
       }
 
-   if (useNonConstrainedTM || disableTMPoll)
+   if (useNonConstrainedTM || !canInlineTMPoll)
       cursor = generateS390LabelInstruction(cg, TR::InstOpCode::label, node, failLabel, deps);
 
    if (usesCompressedrefs)

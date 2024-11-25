@@ -216,7 +216,7 @@ int32_t J9::Options::_TLHPrefetchStaggeredLineCount = 0;
 int32_t J9::Options::_TLHPrefetchBoundaryLineCount = 0;
 int32_t J9::Options::_TLHPrefetchTLHEndLineCount = 0;
 
-int32_t J9::Options::_minTimeBetweenMemoryDisclaims = 5000; // ms
+int32_t J9::Options::_minTimeBetweenMemoryDisclaims = 500; // ms
 
 int32_t J9::Options::_numFirstTimeCompilationsToExitIdleMode = 25; // Use a large number to disable the feature
 int32_t J9::Options::_waitTimeToEnterIdleMode = 5000; // ms
@@ -393,7 +393,9 @@ const char * J9::Options::_externalOptionStrings[J9::ExternalOptions::TR_NumExte
    "-XX:+JITServerHealthProbes",          // = 74
    "-XX:-JITServerHealthProbes",          // = 75
    "-XX:JITServerHealthProbePort=",       // = 76
-   // TR_NumExternalOptions                  = 77
+   "-XX:+TrackAOTDependencies",           // = 77
+   "-XX:-TrackAOTDependencies"            // = 78
+   // TR_NumExternalOptions                  = 79
    };
 
 //************************************************************************
@@ -1118,7 +1120,7 @@ TR::OptionTable OMR::Options::_feOptions[] = {
    {"minSuperclassArraySize=", "I<nnn>\t set the size of the minimum superclass array size",
         TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_minimumSuperclassArraySize, 0, "F%d", NOT_IN_SUBSET},
    {"minTimeBetweenMemoryDisclaims=",  "M<nnn>\tMinimum time (ms) between two consecutive memory disclaim operations",
-        TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_minTimeBetweenMemoryDisclaims, 5000, "F%d", NOT_IN_SUBSET},
+        TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_minTimeBetweenMemoryDisclaims, 500, "F%d", NOT_IN_SUBSET},
    {"noregmap",           0, RESET_JITCONFIG_RUNTIME_FLAG(J9JIT_CG_REGISTER_MAPS) },
    {"numCodeCachesOnStartup=",   "R<nnn>\tnumber of code caches to create at startup",
         TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_numCodeCachesToCreateAtStartup, 0, "F%d", NOT_IN_SUBSET},
@@ -2603,6 +2605,18 @@ J9::Options::fePreProcess(void * base)
          }
       }
 
+#if defined(J9VM_OPT_CRIU_SUPPORT)
+   if (vm->internalVMFunctions->isCRaCorCRIUSupportEnabled(vm))
+      self()->setOption(TR_EnableSharedCacheDisclaiming);
+#endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
+
+   int32_t xxEnableTrackAOTDependenciesArgIndex  = FIND_ARG_IN_VMARGS(EXACT_MATCH, J9::Options::_externalOptionStrings[J9::ExternalOptions::XXplusTrackAOTDependencies], 0);
+   int32_t xxDisableTrackAOTDependenciesArgIndex = FIND_ARG_IN_VMARGS(EXACT_MATCH, J9::Options::_externalOptionStrings[J9::ExternalOptions::XXminusTrackAOTDependencies], 0);
+   if (xxEnableTrackAOTDependenciesArgIndex > xxDisableTrackAOTDependenciesArgIndex)
+      {
+      compInfo->getPersistentInfo()->setTrackAOTDependencies(true);
+      }
+
   /* Using traps on z/OS for NullPointerException and ArrayIndexOutOfBound checks instead of the
    * old way of using explicit compare and branching off to a helper is causing several issues on z/OS:
    *
@@ -2764,6 +2778,7 @@ J9::Options::fePreProcess(void * base)
       self()->setOption(TR_DisableDataCacheDisclaiming);
       self()->setOption(TR_DisableIProfilerDataDisclaiming);
       self()->setOption(TR_EnableCodeCacheDisclaiming, false);
+      self()->setOption(TR_EnableSharedCacheDisclaiming, false);
       }
 
    return true;
