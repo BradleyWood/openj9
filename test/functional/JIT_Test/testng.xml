@@ -597,6 +597,13 @@
     </classes>
   </test>
 
+  <!-- jit.test.simdIntrinsics tests start here -->
+  <test name="SIMDIntrinsicsTest">
+    <classes>
+      <class name="jit.test.recognizedMethod.TestJavaLangStringLatin1" />
+    </classes>
+  </test>
+
   <test name="JITServerTest">
     <classes>
       <class name="jit.test.jitserver.JITServerTest"/>

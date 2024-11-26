@@ -20,7 +20,7 @@ OpenJDK Assembly Exception [2].
 
 SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0 OR GPL-2.0-only WITH OpenJDK-assembly-exception-1.0
 -->
-<playlist xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../TKG/playlist.xsd">
+<playlist xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../TKG/resources/playlist.xsd">
 	<!-- jit.test.jitt tests start here -->
 	<test>
 		<testCaseName>finalizerTest</testCaseName>
@@ -766,6 +766,58 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-ex
 			<impl>openj9</impl>
 			<impl>ibm</impl>
 		</impls>
+	</test>
+	<test>
+		<testCaseName>jit_simd_intrinsics</testCaseName>
+		<variations>
+			<variation>-Xint</variation>
+			<variation>-Xjit:count=0</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation,disableAVX512</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation,disableAVX2</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation,disableAVX</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation,disableSSE4_1</variation>
+		</variations>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)jitt.jar$(Q) \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
+	-testnames \
+	SIMDIntrinsicsTest \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
+		<disables>
+			<disable>
+				<comment>x86 specific variation</comment>
+				<variation>-Xjit:count=1,disableAsyncCompilation,disableAVX512</variation>
+				<platform>^(?!.*arch\.x86).*</platform>
+			</disable>
+			<disable>
+				<comment>x86 specific variation</comment>
+				<variation>-Xjit:count=1,disableAsyncCompilation,disableAVX2</variation>
+				<platform>^(?!.*arch\.x86).*</platform>
+			</disable>
+			<disable>
+				<comment>x86 specific variation</comment>
+				<variation>-Xjit:count=1,disableAsyncCompilation,disableAVX</variation>
+				<platform>^(?!.*arch\.x86).*</platform>
+			</disable>
+			<disable>
+				<comment>x86 specific variation</comment>
+				<variation>-Xjit:count=1,disableAsyncCompilation,disableSSE4_1</variation>
+				<platform>^(?!.*arch\.x86).*</platform>
+			</disable>
+		</disables>
 	</test>
 	<!-- JITServer tests start here. -->
 	<test>
