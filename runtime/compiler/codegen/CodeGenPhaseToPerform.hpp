@@ -52,6 +52,7 @@
     CreateStackAtlasPhase,
 
     RegisterAssigningPhase,
+    CodeGenOptPhase,
     MapStackPhase,
     PeepholePhase,
     ExpandInstructionsPhase,

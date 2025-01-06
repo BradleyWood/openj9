@@ -9420,16 +9420,13 @@ J9::X86::TreeEvaluator::vectorizedHashCodeLoopHelper(TR::Node *node,
    int32_t numElements = vectorSizeElements * unrollCount;
 
    TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions((uint8_t)0, (uint8_t)11, cg);
-   TR::Register *tmp = cg->allocateRegister(TR_GPR);
-   TR::Register *tmpVRF = cg->allocateRegister(TR_VRF);
-   TR::Register *multiplierVRF = cg->allocateRegister(TR_VRF);
+   TR::Register *tmp = NULL, *tmpVRF = NULL, *multiplierVRF = NULL;
+
+   cg->allocateWithPostCondition(tmp, TR_GPR, deps);
+   cg->allocateRegsWithPostConditions(tmpVRF, multiplierVRF, TR_VRF, deps);
 
    TR::Register *hashRegsVRF[]             = {cg->allocateRegister(TR_VRF), cg->allocateRegister(TR_VRF), cg->allocateRegister(TR_VRF), cg->allocateRegister(TR_VRF) };
    TR::Register *multiplier31PowNRegsVRF[] = {cg->allocateRegister(TR_VRF), cg->allocateRegister(TR_VRF), cg->allocateRegister(TR_VRF), cg->allocateRegister(TR_VRF) };
-
-   deps->addPostCondition(tmp, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(tmpVRF, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(multiplierVRF, TR::RealRegister::NoReg, cg);
 
    for (int32_t i = 0; i < 4; i++) deps->addPostCondition(multiplier31PowNRegsVRF[i], TR::RealRegister::NoReg, cg);
    for (int32_t i = 0; i < 4; i++) deps->addPostCondition(hashRegsVRF[i], TR::RealRegister::NoReg, cg);
