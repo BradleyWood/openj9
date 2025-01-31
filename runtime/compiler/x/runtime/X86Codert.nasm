@@ -117,6 +117,25 @@ ONEHALF:
         dq 3fe0000000000000h
         dq 3fe0000000000000h
 
+HASH_31_POW_64:
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729,
+             dd 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729, 1304393729
+
+HASH_CONSTS: dd 2120287199, -208698303, -1807847521, -1166696319, 100911967, 280349889, -1930619105, 630458625,
+             dd 20337375, 693392705, 438009503, -1925533311, 769170015, 1133190593, -240540129, -7759359,
+             dd 969581023, 1970939457, -1183347297, -1700740479, -1024693921, -448696639, 124073247, -1935660287,
+             dd 1461579999, -922683583, 1632803999, 329765761, 1950300255, 1725480897, 1025491999, 2111290369,
+             dd -2010103841, 350799937, 11316127, 693101697, -254736545, 961614017, 31019807, -2077209343,
+             dd -67006753, 1244764481, -2038056289, 211350913, -408824225, -844471871, -997072353, 1353309697,
+             dd -510534177, 1507551809, -505558625, -293403007, 129082719, -1796951359, -196513505, -1807454463,
+             dd 1742810335, 887503681, 28629151, 923521, 29791, 961, 31, 1
+
 segment .text
 
 %ifdef TR_HOST_32BIT
@@ -144,6 +163,8 @@ segment .text
         DECLARE_GLOBAL jProfile64BitValueWrapper
         DECLARE_EXTERN jProfile32BitValue
         DECLARE_EXTERN jProfile64BitValue
+        DECLARE_EXTERN strHashCodeDecompressed512Helper_impl
+        DECLARE_EXTERN strHashCodeCompressed512Helper_impl
 %endif
 
         align 16
@@ -333,6 +354,184 @@ f2l_done:
         retn
 
 %endif ; TR_HOST_32BIT
+
+; String hashcode for unsigned chars (decompressed) - main avx-512 loop unrolled 4x
+;
+strHashCodeDecompressed512Helper_impl:
+; Parameters
+;
+; rdi -> ptr
+; esi -> init_hash
+; edx -> termination_index
+; ecx -> start_index
+
+; Return
+; eax -> hash_value
+
+        ret
+        ; Preserve AVX-512 registers (ZMM6-ZMM9) that we modify
+        sub         rsp, 256               ; Allocate space for four ZMM registers
+        vmovdqu32   [rsp + 0x00], zmm6
+        vmovdqu32   [rsp + 0x40], zmm7
+        vmovdqu32   [rsp + 0x80], zmm8
+        vmovdqu32   [rsp + 0xC0], zmm9
+
+        movd	    xmm6, esi
+        vpxord	    zmm7, zmm7
+        vpxord	    zmm8, zmm8
+        vpxord	    zmm9, zmm9
+
+        ; LOAD 31^n...
+        vmovdqu32	    zmm1, [_rel HASH_31_POW_64]
+
+        ;
+        vmovdqu32	    zmm2, [_rel HASH_CONSTS]
+        vmovdqu32	    zmm3, [_rel HASH_CONSTS + 64]
+        vmovdqu32	    zmm4, [_rel HASH_CONSTS + 2*64]
+        vmovdqu32	    zmm5, [_rel HASH_CONSTS + 3*64]
+
+main_loop:
+        ; unroll itr 1
+        vpmovzxbd	zmm0, [rdi+1*rcx]
+        vpmulld	    zmm0, zmm2
+        vpmulld	    zmm6, zmm1
+        vpaddd	    zmm6, zmm0
+
+        ; unroll itr 2
+        vpmovzxbd	zmm0, [rdi+1*rcx+0x20]
+        vpmulld	    zmm0, zmm3
+        vpmulld	    zmm7, zmm1
+        vpaddd	    zmm7, zmm0
+
+        ; unroll itr 3
+        vpmovzxbd	zmm0, [rdi+1*rcx+0x40]
+        vpmulld	    zmm0, zmm4
+        vpmulld	    zmm8, zmm1
+        vpaddd	    zmm8, zmm0
+
+        ; unroll itr 4
+        vpmovzxbd	zmm0, [rdi+1*rcx+0x60]
+        vpmulld	    zmm0, zmm5
+        vpmulld	    zmm9, zmm1
+        vpaddd	    zmm9, zmm0
+
+        ; loop back
+        add	        ecx, 0x00000040
+        cmp	        ecx, edx
+        jl	        main_loop
+end_loop:
+
+        ; vector add reduction
+        ;
+        vpaddd      zmm6, zmm7
+        vpaddd      zmm6, zmm8
+        vpaddd      zmm6, zmm9
+        vextractf64x4 ymm0, zmm6, 0xff
+        vpaddd      ymm6, ymm0
+        vextractf128 xmm0, ymm6, 0xff
+        vpaddd	    xmm6, xmm0
+        vpshufd	    xmm0, xmm6, 0x0e
+        vpaddd	    xmm6, xmm0
+        vpshufd	    xmm0, xmm6, 0x01
+        vpaddd	    xmm6, xmm0
+        movd	    eax, xmm6
+
+        ; Restore AVX-512 registers
+        vmovdqu32   zmm6, [rsp + 0x00]
+        vmovdqu32   zmm7, [rsp + 0x40]
+        vmovdqu32   zmm8, [rsp + 0x80]
+        vmovdqu32   zmm9, [rsp + 0xC0]
+        add         rsp, 256              ; Restore stack space
+
+        ret
+
+; String hashcode for unsigned bytes (compressed) - main avx-512 loop unrolled 4x
+;
+strHashCodeCompressed512Helper_impl:
+; Parameters
+;
+; rdi -> ptr
+; esi -> init_hash
+; edx -> termination_index
+; ecx -> start_index
+
+; Return
+; eax -> hash_value
+
+        ; Preserve AVX-512 registers (ZMM6-ZMM9) that we modify
+;        sub         rsp, 256               ; Allocate space for four ZMM registers
+;        vmovdqu32   [rsp + 0x00], zmm6
+;        vmovdqu32   [rsp + 0x40], zmm7
+;        vmovdqu32   [rsp + 0x80], zmm8
+;        vmovdqu32   [rsp + 0xC0], zmm9
+
+        movd	    xmm6, esi
+        vpxord	    zmm7, zmm7
+        vpxord	    zmm8, zmm8
+        vpxord	    zmm9, zmm9
+
+        ; LOAD 31^n...
+        vmovdqu32	    zmm1, [_rel HASH_31_POW_64]
+
+        vmovdqu32	    zmm2, [_rel HASH_CONSTS]
+        vmovdqu32	    zmm3, [_rel HASH_CONSTS + 64]
+        vmovdqu32	    zmm4, [_rel HASH_CONSTS + 2*64]
+        vmovdqu32	    zmm5, [_rel HASH_CONSTS + 3*64]
+
+main_loop_compressed:
+        ; unroll itr 1
+        vpmovzxwd	zmm0, [rdi+2*rcx]
+        vpmulld	    zmm0, zmm2
+        vpmulld	    zmm6, zmm1
+        vpaddd	    zmm6, zmm0
+
+        ; unroll itr 2
+        vpmovzxwd	zmm0, [rdi+2*rcx+0x20]
+        vpmulld	    zmm0, zmm3
+        vpmulld	    zmm7, zmm1
+        vpaddd	    zmm7, zmm0
+
+        ; unroll itr 3
+        vpmovzxwd	zmm0, [rdi+2*rcx+0x40]
+        vpmulld	    zmm0, zmm4
+        vpmulld	    zmm8, zmm1
+        vpaddd	    zmm8, zmm0
+
+        ; unroll itr 4
+        vpmovzxwd	zmm0, [rdi+2*rcx+0x60]
+        vpmulld	    zmm0, zmm5
+        vpmulld	    zmm9, zmm1
+        vpaddd	    zmm9, zmm0
+
+        ; loop back
+        add	        ecx, 0x00000040
+        cmp	        ecx, edx
+        jl	        main_loop_compressed
+end_loop_compressed:
+
+        ; vector add reduction
+        ;
+        vpaddd      zmm6, zmm7
+        vpaddd      zmm6, zmm8
+        vpaddd      zmm6, zmm9
+        vextractf64x4 ymm0, zmm6, 0xff
+        vpaddd      ymm6, ymm0
+        vextractf128 xmm0, ymm6, 0xff
+        vpaddd	    xmm6, xmm0
+        vpshufd	    xmm0, xmm6, 0x0e
+        vpaddd	    xmm6, xmm0
+        vpshufd	    xmm0, xmm6, 0x01
+        vpaddd	    xmm6, xmm0
+        movd	    eax, xmm6
+
+        ; Restore AVX-512 registers
+;        vmovdqu32   zmm6, [rsp + 0x00]
+;        vmovdqu32   zmm7, [rsp + 0x40]
+;        vmovdqu32   zmm8, [rsp + 0x80]
+;        vmovdqu32   zmm9, [rsp + 0xC0]
+;        add         rsp, 256              ; Restore stack space
+
+        ret
 
 
 ; X87floatRemainder, X87doubleRemainder

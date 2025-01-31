@@ -352,6 +352,8 @@ JIT_HELPER(doAESENCDecrypt);
 
 JIT_HELPER(methodHandleJ2IGlue);
 JIT_HELPER(methodHandleJ2I_unwrapper);
+JIT_HELPER(strHashCodeDecompressed512Helper_impl);
+JIT_HELPER(strHashCodeCompressed512Helper_impl);
 
 // --------------------------------------------------------------------------------
 //                                    IA32
@@ -1249,6 +1251,8 @@ void initializeCodeRuntimeHelperTable(J9JITConfig *jitConfig, char isSMP)
 
    SET(TR_methodHandleJ2IGlue,                        (void *)methodHandleJ2IGlue,       TR_Helper);
    SET(TR_methodHandleJ2I_unwrapper,                  (void *)methodHandleJ2I_unwrapper, TR_Helper);
+   SET(TR_AMD64strHashCodeDecompressed512Helper,      (void *)strHashCodeDecompressed512Helper_impl,   TR_Helper);
+   SET(TR_AMD64strHashCodeCompressed512Helper,        (void *)strHashCodeCompressed512Helper_impl,   TR_Helper);
 
 #else // AMD64
 
