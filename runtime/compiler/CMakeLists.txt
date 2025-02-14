@@ -360,6 +360,9 @@ if(OMR_OS_ZOS)
 	set_property(SOURCE "optimizer/VectorAPIExpansion.cpp" APPEND PROPERTY COMPILE_FLAGS "-O")
 endif()
 
+# TODO; C intrinsics using intel intrinsics should be isolated to specific files; -mfma does not work on MSVC
+set_property(SOURCE "x/codegen/J9X86Intrinsics.cpp" APPEND PROPERTY COMPILE_FLAGS "-mfma")
+
 add_dependencies(j9jit
 	omrgc_hookgen
 	j9jit_tracegen

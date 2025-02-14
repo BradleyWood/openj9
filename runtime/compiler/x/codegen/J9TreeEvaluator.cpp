@@ -78,6 +78,7 @@
 #include "runtime/J9Runtime.hpp"
 #include "codegen/J9WatchedStaticFieldSnippet.hpp"
 #include "codegen/X86FPConversionSnippet.hpp"
+#include "codegen/J9X86Intrinsics.hpp"
 
 #ifdef TR_TARGET_64BIT
 #include "codegen/AMD64PrivateLinkage.hpp"
@@ -12162,6 +12163,15 @@ J9::X86::TreeEvaluator::directCallEvaluator(TR::Node *node, TR::CodeGenerator *c
          break;
       }
 
+   if (!callInlined && J9::X86::isSupportedIntrinsic(symbol->getRecognizedMethod(), node, cg))
+      {
+      TR::Register *result = J9::X86::dispatchIntrinsic(symbol->getRecognizedMethod(), node, cg);
+
+      if (result)
+         {
+         return result;
+         }
+      }
 
    // If the method to be called is marked as an inline method, see if it can
    // actually be generated inline.
