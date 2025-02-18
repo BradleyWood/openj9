@@ -9517,6 +9517,19 @@ J9::X86::TreeEvaluator::vectorizedHashCodeLoopHelper(TR::Node *node,
    return result;
    }
 
+inline int32_t computeOptimalVectorLength(int32_t L_f, int32_t L_max, float_t P_f, float_t P_max) {
+   // If the most frequent length is also the max, return it directly
+   if (L_f == L_max) return L_f;
+
+   // Compute the relative work done by each case
+   float_t W_f = P_f * L_f;
+   float_t W_max = P_max * L_max;
+
+   // Compute work-weighted geometric mean
+   float_t L_opt = pow(L_f, W_f / (W_f + W_max)) * pow(L_max, W_max / (W_f + W_max));
+   return (int32_t) (L_opt + 0.5f);
+}
+
 /**
  * @brief Implements the vectorized `hashCode` computation using SIMD instructions.
  *
@@ -9624,13 +9637,76 @@ J9::X86::TreeEvaluator::vectorizedHashCodeHelper(TR::Node *node, TR::DataType dt
    int32_t unrollCount = 1;
 #endif
 
-   vectorizedHashCodeLoopHelper(node, dt, vl, isSigned, result, initHash, index, length, address, unrollCount, cg);
+   TR_ValueInfo *info = dynamic_cast<TR_ValueInfo*>(comp->getValueProfileInfoManager()->getValueInfo(node->getChild(2), comp, ValueInfo));
+   bool disableVectorization = false;
+   bool disableSecondLoop = false;
 
-   static bool disableSecondLoop = feGetEnv("TR_disableVectorHashCodeSecondLoop") != NULL;
+   if (info)
+      {
+      float_t maxFreq = info->getTotalFrequency() == 0 ? 0 : info->getMaxValue() / (float_t) info->getTotalFrequency();
+      int32_t optValue = computeOptimalVectorLength(info->getTopValue(), info->getMaxValue(), info->getTopProbability(), maxFreq);
+      disableVectorization = optValue < 4;
+      vl = TR::VectorLength128;
+      unrollCount = !unrollVar ? 1 : unrollCount;
+      if ((optValue / 4) >= 2) unrollCount = !unrollVar ? 2 : unrollCount;
+      if ((optValue / 4) >= 4) unrollCount = !unrollVar ? 4 : unrollCount;
+
+      if ((optValue % (4 * unrollCount)) == 0 && optValue == info->getTopValue() && info->getTopProbability() == 1)
+         disableSecondLoop = true;
+
+      if (optValue >= 8 && comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX2))
+         {
+         vl = TR::VectorLength256;
+         disableSecondLoop = false;
+         if ((optValue / 8) >= 2) unrollCount = !unrollVar ? 2 : unrollCount;
+         if ((optValue / 8) >= 4) unrollCount = !unrollVar ? 4 : unrollCount;
+
+         if ((optValue % (8 * unrollCount)) == 0 && optValue == info->getTopValue() && info->getTopProbability() == 1)
+            disableSecondLoop = true;
+         }
+
+      if (optValue >= 16 && comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+         {
+         vl = TR::VectorLength512;
+         disableSecondLoop = false;
+         if ((optValue / 16) >= 2) unrollCount = !unrollVar ? 2 : unrollCount;
+         if ((optValue / 16) >= 4) unrollCount = !unrollVar ? 4 : unrollCount;
+
+         if ((optValue % (16 * unrollCount)) == 0 && optValue == info->getTopValue() && info->getTopProbability() == 1)
+            disableSecondLoop = true;
+         }
+
+      auto top = info->getTopValue();
+
+      char * vlStr = "128";
+      if (vl == TR::VectorLength256)
+         vlStr = "256";
+      if (vl == TR::VectorLength512)
+         vlStr = "512";
+
+      traceMsg(cg->comp(), "VectorizedHashCode: Optimize for length=%d, VL=%s, unroll=%d disableVectorization=%d, disableSecondaryLoop=%d\n", optValue, vlStr, unrollCount, disableVectorization, disableSecondLoop);
+      printf("VectorizedHashCode: Optimize for length=%d, VL=%s, unroll=%d disableVectorization=%d, disableSecondaryLoop=%d\n", optValue, vlStr, unrollCount, disableVectorization, disableSecondLoop);
+      }
+
+   if (!disableVectorization)
+      {
+      char * vlStr = "128";
+      if (vl == TR::VectorLength256)
+         vlStr = "256";
+      if (vl == TR::VectorLength512)
+         vlStr = "512";
+
+      traceMsg(cg->comp(), "VectorizedHashCode: Generating %s-bit main loop unrolled %dx", vlStr, unrollCount);
+      vectorizedHashCodeLoopHelper(node, dt, vl, isSigned, result, initHash, index, length, address, unrollCount, cg);
+      }
+
+   disableSecondLoop = disableSecondLoop || feGetEnv("TR_disableVectorHashCodeSecondLoop") != NULL
+         || disableVectorization || (unrollCount == 1 && vl == TR::VectorLength128);
 
    // Generate a second vectorized loop if not disabled and Vl/unrollCount are not the same as the first loop
    if (!disableSecondLoop && (unrollCount != 1 || vl != TR::VectorLength128))
       {
+      traceMsg(cg->comp(), "VectorizedHashCode: Generating 128-bit secondary loop");
       generateRegRegInstruction(TR::InstOpCode::MOV4RegReg, node, initHash, result, cg);
       vectorizedHashCodeLoopHelper(node, dt, TR::VectorLength128, isSigned, result, initHash, index, length, address, 1, cg);
       }
