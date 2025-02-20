@@ -78,6 +78,7 @@
 #include "runtime/J9Runtime.hpp"
 #include "codegen/J9WatchedStaticFieldSnippet.hpp"
 #include "codegen/X86FPConversionSnippet.hpp"
+#include "codegen/EvaluatorScope.hpp"
 
 #ifdef TR_TARGET_64BIT
 #include "codegen/AMD64PrivateLinkage.hpp"
@@ -12294,16 +12295,18 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    intptr_t headerOffsetConst = TR::Compiler->om.contiguousArrayHeaderSizeInBytes();
    uint8_t vectorLengthConst = 16;
 
-   TR::Register *srcBufferReg = cg->evaluate(node->getChild(0));
-   TR::Register *srcOffsetReg = cg->gprClobberEvaluate(node->getChild(1), TR::InstOpCode::MOV4RegReg);
-   TR::Register *destBufferReg = cg->evaluate(node->getChild(2));
-   TR::Register *destOffsetReg = cg->gprClobberEvaluate(node->getChild(3), TR::InstOpCode::MOV4RegReg);
-   TR::Register *lengthReg = cg->gprClobberEvaluate(node->getChild(4), TR::InstOpCode::MOV4RegReg);
+   ScopedChildManager<> scm(node, cg);
 
-   TR::Register *xmmHighReg = cg->allocateRegister(TR_VRF);
-   TR::Register *xmmLowReg = cg->allocateRegister(TR_VRF);
-   TR::Register *zeroReg = cg->allocateRegister(TR_VRF);
-   TR::Register *scratchReg = cg->allocateRegister(TR_GPR);
+   TR::Register *srcBufferReg = scm.evaluate(0);
+   TR::Register *srcOffsetReg = scm.clobberEvaluate(1);
+   TR::Register *destBufferReg = scm.evaluate(2);
+   TR::Register *destOffsetReg = scm.clobberEvaluate(3);
+   TR::Register *lengthReg = scm.clobberEvaluate(4);
+
+   TR::Register *xmmHighReg = scm.allocateRegister(TR_VRF);
+   TR::Register *xmmLowReg = scm.allocateRegister(TR_VRF);
+   TR::Register *zeroReg = scm.allocateRegister(TR_VRF);
+   TR::Register *scratchReg = scm.allocateRegister(TR_GPR);
 
    int maxDepCount = 10;
    TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions(0, maxDepCount, cg);
@@ -12430,20 +12433,6 @@ J9::X86::TreeEvaluator::inlineStringLatin1Inflate(TR::Node *node, TR::CodeGenera
    deps->stopAddingConditions();
    generateLabelInstruction(TR::InstOpCode::label, node, doneLabel, deps, cg);
    doneLabel->setEndInternalControlFlow();
-
-   cg->stopUsingRegister(srcOffsetReg);
-   cg->stopUsingRegister(destOffsetReg);
-   cg->stopUsingRegister(lengthReg);
-
-   cg->stopUsingRegister(xmmHighReg);
-   cg->stopUsingRegister(xmmLowReg);
-   cg->stopUsingRegister(zeroReg);
-   cg->stopUsingRegister(scratchReg);
-
-   for (int i = 0; i < 5; i++)
-      {
-      cg->decReferenceCount(node->getChild(i));
-      }
 
    return NULL;
    }

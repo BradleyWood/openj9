@@ -394,6 +394,35 @@ void TR_ValueProfiler::modifyTrees()
          block = node->getBlock();
 
       TR::Node * firstChild = node->getNumChildren() > 0 ? node->getFirstChild() : 0;
+
+      if (firstChild && firstChild->getOpCode().isCall())
+         {
+         if (firstChild->getSymbol() && firstChild->getSymbol()->castToMethodSymbol())
+            {
+            TR::MethodSymbol *methodSymbol = firstChild->getSymbol()->castToMethodSymbol();
+            if (methodSymbol->getRecognizedMethod())
+               {
+               switch (methodSymbol->getRecognizedMethod())
+                  {
+                  case TR::java_lang_String_hashCodeImplCompressed:
+                  case TR::java_lang_String_hashCodeImplDecompressed:
+                     {
+                     printf("Profiler found call to vectorizedHashcode\n");
+                     auto lenNode = firstChild->getChild(2);
+                     auto bci = lenNode->getByteCodeInfo();
+                     printf("Profiled len node bci; bci=%d, caller_index=%d\n", bci.getByteCodeIndex(), bci.getCallerIndex());
+
+                     traceMsg(comp(), "Inserting profiling trees to node n%dn", lenNode->getGlobalIndex());
+                     addProfilingTrees(lenNode, tt, 0, LastValueInfo);
+                     continue;
+                     }
+                  default:
+                     break;
+                  }
+               }
+            }
+         }
+
       if (firstChild && firstChild->getOpCodeValue() == TR::arraycopy &&
           !getInitialCompilation() && !debug("disableProfileArrayCopy"))
          {
@@ -1436,6 +1465,8 @@ TR_ValueProfileInfo::getProfilerInfo(TR_ByteCodeInfo &bcInfo, TR::Compilation *c
       }
 
    // If this TR_ValueProfileInfo is from a prior compile, attempt to fuzzy match the BCI
+   bool b = bcInfo.getByteCodeIndex() == 52;
+
    if (fuzz)
       {
       TR_AbstractProfilerInfo *bestMatchedValueInfo = NULL;
