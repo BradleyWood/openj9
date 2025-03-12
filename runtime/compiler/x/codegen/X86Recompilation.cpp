@@ -124,7 +124,7 @@ TR::Instruction *TR_X86Recompilation::generatePrePrologue()
       // 4-byte boundary, which is more than enough to ensure it can be patched
       // atomically.
       //
-      prev = generateHelperCallInstruction(prev, SAMPLING_RECOMPILE_METHOD, cg());
+      prev = generateHelperCallInstruction(prev, SAMPLING_RECOMPILE_METHOD, generateVectorPreservationConditions(cg()), cg());
       }
 
    // The address of the persistent method info is inserted in the pre-prologue
@@ -196,6 +196,8 @@ TR::Instruction *TR_X86Recompilation::generatePrologue(TR::Instruction *cursor)
          TR::Snippet *snippet =
             new (trHeapMemory()) TR::X86RecompilationSnippet(snippetLabel, counterInstruction->getNode(), cg());
          cg()->addSnippet(snippet);
+
+         cursor = new (trHeapMemory()) TR::X86LabelInstruction(cursor, TR::InstOpCode::label, generateLabelSymbol(cg()), generateVectorPreservationConditions(cg()), cg());
          }
       }
 

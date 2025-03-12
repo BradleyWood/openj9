@@ -133,6 +133,7 @@ segment .text
         DECLARE_GLOBAL SSEdoubleRemainder
         DECLARE_GLOBAL SSEfloatRemainderIA32Thunk
         DECLARE_GLOBAL SSEdoubleRemainderIA32Thunk
+        DECLARE_GLOBAL StompZMM
 %ifdef TR_HOST_32BIT
         DECLARE_GLOBAL SSEdouble2LongIA32
 %endif
@@ -644,6 +645,26 @@ LARGE_NUMS:
 
 %ifdef TR_HOST_64BIT
         align 16
+
+StompZMM:
+        vpxord ymm0, ymm0
+        vpxord ymm1, ymm1
+        vpxord ymm2, ymm2
+        vpxord ymm3, ymm3
+        vpxord ymm4, ymm4
+        vpxord ymm5, ymm5
+        vpxord ymm6, ymm6
+        vpxord ymm7, ymm7
+        vpxord ymm8, ymm8
+        vpxord ymm9, ymm9
+        vpxord ymm10, ymm10
+        vpxord ymm11, ymm11
+        vpxord ymm12, ymm12
+        vpxord ymm13, ymm13
+        vpxord ymm14, ymm14
+        vpxord ymm15, ymm15
+        ret
+
 jProfile32BitValueWrapper:
         ; Called directly from jitted code, _rbp is vmthread
         mov [_rbp+J9TR_VMThread_sp], _rsp                 ; Store current java stack pointer to vmthread
