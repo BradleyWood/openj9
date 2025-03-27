@@ -23,10 +23,7 @@
 #include "jclprots.h"
 #include "j9protos.h"
 
-/* TODO this will be replaced by a call that can determine
- * the correct size on each platform
- */
-#define MAX_VECTOR_REGISTER_SIZE 128
+#define DEFAULT_VECTOR_REGISTER_SIZE 128
 
 extern "C" {
 
@@ -50,15 +47,42 @@ Java_jdk_internal_vm_vector_VectorSupport_getMaxLaneCount(JNIEnv *env, jclass cl
 		vmFuncs->setCurrentException(currentThread, J9VMCONSTANTPOOL_JAVALANGNULLPOINTEREXCEPTION, NULL);
 	} else {
 		J9Class *elementType = J9VM_J9CLASS_FROM_HEAPCLASS(currentThread, classObj);
+		jint vectorRegSize = DEFAULT_VECTOR_REGISTER_SIZE;
+
+#if defined(J9X86) || defined(J9HAMMER)
+		// In CRIU mode, we limit species-preferred to 128-bits for portability. Species preferred is stable and cannot
+		// be reevaluated post-restore.
+		if (!vm->internalVMFunctions->isCheckpointAllowed(vm)) {
+			PORT_ACCESS_FROM_JAVAVM(vm);
+			OMRPORT_ACCESS_FROM_J9PORT(PORTLIB);
+
+			OMRProcessorDesc desc;
+			omrsysinfo_get_processor_description(&desc);
+
+			// The portlibrary does not support OS feature checks for YMM/ZMM registers
+			// Therefore, species preferred will be overestimated on modern hardware running
+			// old operating systems such as Windows Server 2012.
+			if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512F)) {
+				vectorRegSize = 512;
+			} else if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX2)) {
+				vectorRegSize = 256;
+			}
+
+			// TODO; Floating-point operations can be supported with 256-bit vectors on AVX hardware (without AVX-2). Some
+			// JIT evaluators (like mask operations) use integer opcodes which aren't supported on 256-bit vectors by AVX.
+			// Until this fixed or improved, we limit floating-point operations to 128-bits on hardware without AVX-2.
+			// This will prevent the JIT from unnecessarily rejecting vectorization of these operations.
+      }
+#endif
 
 		if (elementType == vm->byteReflectClass) {
-			laneCount = MAX_VECTOR_REGISTER_SIZE/8;
+			laneCount = vectorRegSize / 8;
 		} else if (elementType == vm->shortReflectClass) {
-			laneCount = MAX_VECTOR_REGISTER_SIZE/16;
+			laneCount = vectorRegSize / 16;
 		} else if ((elementType == vm->intReflectClass) || (elementType == vm->floatReflectClass)) {
-			laneCount = MAX_VECTOR_REGISTER_SIZE/32;
+			laneCount = vectorRegSize / 32;
 		} else if ((elementType == vm->longReflectClass) || (elementType == vm->doubleReflectClass)) {
-			laneCount = MAX_VECTOR_REGISTER_SIZE/64;
+			laneCount = vectorRegSize / 64;
 		} else {
 			vmFuncs->setCurrentException(currentThread, J9VMCONSTANTPOOL_JAVALANGILLEGALARGUMENTEXCEPTION, NULL);
 		}
