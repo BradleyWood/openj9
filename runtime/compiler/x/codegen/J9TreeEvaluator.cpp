@@ -9232,7 +9232,7 @@ TR::Register* J9::X86::TreeEvaluator::inlineMathFma(TR::Node* node, TR::CodeGene
 
 static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
    {
-   TR::Register *hashResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, cg);
+   TR::Register *hashResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, TR::VectorLength128, 1, cg);
    node->setRegister(hashResult);
 
    return hashResult;
@@ -9244,22 +9244,30 @@ TR::Register* J9::X86::TreeEvaluator::inlineVectorizedHashCode(TR::Node* node, T
    TR::Node *elementTypeNode = node->getChild(4);
    TR::Register* registerHash = NULL;
 
+   TR::VectorLength vl = TR::VectorLength128;
+   uint32_t unrollCount = 4;
+
+   if (cg->comp()->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+      vl = TR::VectorLength512;
+   else if (cg->comp()->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX2))
+      vl = TR::VectorLength256;
+
    switch (elementTypeNode->getConstValue())
       {
       case 4:  // T_BOOLEAN
-         registerHash = vectorizedHashCodeHelper(node, TR::Int8, initialValueNode, false, cg);
+         registerHash = vectorizedHashCodeHelper(node, TR::Int8, initialValueNode, false, vl, unrollCount, cg);
          break;
       case 8:  // T_BYTE
-         registerHash = vectorizedHashCodeHelper(node, TR::Int8, initialValueNode, true, cg);
+         registerHash = vectorizedHashCodeHelper(node, TR::Int8, initialValueNode, true, vl, unrollCount, cg);
          break;
       case 5:  // T_CHAR
-         registerHash = vectorizedHashCodeHelper(node, TR::Int16, initialValueNode, false, cg);
+         registerHash = vectorizedHashCodeHelper(node, TR::Int16, initialValueNode, false, vl, unrollCount, cg);
          break;
       case 9:  // T_SHORT
-         registerHash = vectorizedHashCodeHelper(node, TR::Int16, initialValueNode, true, cg);
+         registerHash = vectorizedHashCodeHelper(node, TR::Int16, initialValueNode, true, vl, unrollCount, cg);
          break;
       case 10: // T_INT
-         registerHash = vectorizedHashCodeHelper(node, TR::Int32, initialValueNode, true, cg);
+         registerHash = vectorizedHashCodeHelper(node, TR::Int32, initialValueNode, true, vl, unrollCount, cg);
          break;
       default:
          return NULL;
@@ -9551,29 +9559,24 @@ J9::X86::TreeEvaluator::vectorizedHashCodeLoopHelper(TR::Node *node,
  * exert significant pressure on the code cache. This effect may be especially pronounced if
  * the vectorized hashCode algorithm is inlined multiple times in the same method.
  *
- * @param node      The input node to process.
- * @param dt        The data type of the elements.
- * @param nodeHash  The node representing the initial hash value.
- * @param isSigned  Indicates whether the elements are signed.
- * @param cg        The code generator instance.
+ * @param node        The input node to process.
+ * @param dt          The data type of the elements.
+ * @param nodeHash    The node representing the initial hash value.
+ * @param isSigned    Indicates whether the elements are signed.
+ * @param vl          The vector length for the main loop.
+ * @param unrollCount The number of times to unroll the main loop.
+ * @param cg          The code generator instance.
  * @return The register containing the computed hashCode value.
  */
 TR::Register *
 J9::X86::TreeEvaluator::vectorizedHashCodeHelper(TR::Node *node, TR::DataType dt, TR::Node *nodeHash, bool isSigned,
-                                                 TR::CodeGenerator *cg)
+                                                 TR::VectorLength vl, uint32_t unrollCount, TR::CodeGenerator *cg)
    {
    int32_t shift = dt - TR::Int8; /* i8 -> 0, i16 -> 1, i32 -> 2 */
 
    TR_ASSERT_FATAL(shift >= 0 && shift <= 2, "Unsupported datatype for vectorized hashcode");
 
    TR::Compilation *comp = cg->comp();
-   TR::VectorLength vl = TR::VectorLength128;
-
-   if (comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
-      vl = TR::VectorLength512;
-   else if (comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX2))
-      vl = TR::VectorLength256;
-
    TR::Node *addressNode = node->getChild(0);
 
    bool nonZeroOffset = node->getChild(1)->getOpCodeValue() != TR::iconst || node->getChild(1)->getInt() != 0;
@@ -9616,9 +9619,9 @@ J9::X86::TreeEvaluator::vectorizedHashCodeHelper(TR::Node *node, TR::DataType dt
    static char *unrollVar = feGetEnv("TR_setInlineVectorHashCodeUnrollCount");
 
 #ifdef TR_TARGET_64BIT
-   int32_t unrollCount = unrollVar ? atoi(unrollVar) : 4;
+   unrollCount = unrollVar ? atoi(unrollVar) : unrollCount;
 #else
-   int32_t unrollCount = 1;
+   unrollCount = 1;
 #endif
 
    vectorizedHashCodeLoopHelper(node, dt, vl, isSigned, result, initHash, index, length, address, unrollCount, cg);
