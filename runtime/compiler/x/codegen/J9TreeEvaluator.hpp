@@ -156,7 +156,13 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
                                                           TR::VectorLength vl,
                                                           TR::DataType dt,
                                                           TR::CodeGenerator* cg);
-   static TR::Register *vectorizedHashCodeHelper(TR::Node* node, TR::DataType dt, TR::Node *nodeHash, bool isSigned, TR::CodeGenerator* cg);
+   static TR::Register *vectorizedHashCodeHelper(TR::Node* node,
+                                                 TR::DataType dt,
+                                                 TR::Node *nodeHash,
+                                                 bool isSigned,
+                                                 TR::VectorLength vl,
+                                                 uint32_t unrollCount,
+                                                 TR::CodeGenerator* cg);
 
    static TR::Register *vectorizedHashCodeLoopHelper(TR::Node *node,
                                                      TR::DataType dt,
