@@ -371,12 +371,14 @@ class TR_VectorAPIExpansion : public TR::Optimization
    static TR::VectorLength supportedOnPlatform(TR::Compilation *comp, vec_sz_t vectorLength)
          {
          // General check for supported infrastructure
-         if (!comp->target().cpu.isPower() &&
-               !(comp->target().cpu.isZ() && comp->cg()->getSupportsVectorRegisters()) &&
-               !comp->target().cpu.isARM64())
-            return TR::NoVectorLength;
+//         if (!comp->target().cpu.isPower() &&
+//               !(comp->target().cpu.isZ() && comp->cg()->getSupportsVectorRegisters()) &&
+//               !comp->target().cpu.isARM64())
+//            return TR::NoVectorLength;
 
-         if (vectorLength != 128)
+         bool isValid = vectorLength == 128 || vectorLength == 256 || vectorLength == 512;
+
+         if (!isValid)
             return TR::NoVectorLength;
 
          TR::VectorLength length = OMR::DataType::bitsToVectorLength(vectorLength);

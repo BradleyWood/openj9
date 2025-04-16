@@ -1492,7 +1492,63 @@ TR_VectorAPIExpansion::boxChild(TR::TreeTop *treeTop, TR::Node *node, uint32_t i
    TR::Node *aladdNode = generateArrayElementAddressNode(comp(), newArray, TR::Node::lconst(node, 0), elementSize);
 
    TR::SymbolReference *vectorShadow = comp()->getSymRefTab()->findOrCreateArrayShadowSymbolRef(opCodeType, NULL);
-   TR::ILOpCodes storeOpcode = TR::ILOpCode::createVectorOpCode(TR::vstorei, opCodeType);
+
+//   TR::ILOpCodes storeOpcode = TR::ILOpCode::createVectorOpCode((objectType == Vector) ? TR::vstorei : TR::mstorei, opCodeType);
+
+   //
+   //
+   //
+
+   TR::DataType maskType = TR::DataType::createMaskType(elementType, vectorLength);
+   TR::ILOpCodes storeOpcode;
+   TR::ILOpCodes maskConversionOpCode;
+   switch (numLanes)
+      {
+      case 1:
+         storeOpcode = TR::bstorei;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::m2b, maskType);
+         break;
+      case 2:
+         storeOpcode = TR::sstorei;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::m2s, maskType);
+         break;
+      case 4:
+         storeOpcode = TR::istorei;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::m2i, maskType);
+         break;
+      case 8:
+         storeOpcode = TR::lstorei;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::m2l, maskType);
+         break;
+      case 16:
+      case 32:
+      case 64:
+         {
+         TR::DataType sourceType = TR::DataType::createVectorType(TR::Int8, vectorLength);
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::m2v, maskType, sourceType);
+         storeOpcode = TR::ILOpCode::createVectorOpCode(TR::vstorei, sourceType);
+         break;
+         }
+      default:
+         TR_ASSERT_FATAL(false, "Unsupported number of lanes when loading a mask\n");
+      }
+
+   if (opCodeType.isVector())
+      {
+      storeOpcode = TR::ILOpCode::createVectorOpCode(TR::vstorei, opCodeType);
+      }
+
+   //
+   //
+   //
+
+   if (!opCodeType.isVector())
+      {
+      TR::Node *mask2Bool = TR::Node::create(vloadNode, maskConversionOpCode, 1);
+      mask2Bool->setAndIncChild(0, vloadNode);
+      vloadNode = mask2Bool;
+      }
+
    TR::Node *storeNode = TR::Node::createWithSymRef(storeOpcode, 2, aladdNode, vloadNode, 0, vectorShadow);
    treeTop->insertBefore(TR::TreeTop::create(comp(), storeNode));
    TR::Node *fence = TR::Node::createAllocationFence(newArray, newArray);
@@ -1596,13 +1652,64 @@ TR_VectorAPIExpansion::unboxNode(TR::Node *parentNode, TR::Node *operand, vapiOb
    TR::Node *payloadLoad = TR::Node::createWithSymRef(operand, TR::aloadi, 1, payloadSymRef);
    payloadLoad->setAndIncChild(0, operand);
 
-
-   TR::ILOpCodes opcode = TR::ILOpCode::createVectorOpCode(opCodeType.isVector() ? TR::vloadi : TR::mloadi, opCodeType);
-   TR::SymbolReference *vectorShadow = comp()->getSymRefTab()->findOrCreateArrayShadowSymbolRef(opCodeType, NULL);
-   TR::Node *newOperand = TR::Node::createWithSymRef(operand, opcode, 1, vectorShadow);
    int32_t elementSize = OMR::DataType::getSize(elementType);
+   int32_t numLanes = bitsLength / 8 / elementSize;
+
+   TR::DataType maskType = TR::DataType::createMaskType(elementType, vectorLength);
+   TR::ILOpCodes loadOpcode;
+   TR::ILOpCodes maskConversionOpCode;
+   switch (numLanes)
+      {
+      case 1:
+         loadOpcode = TR::bloadi;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::b2m, maskType);
+         break;
+      case 2:
+         loadOpcode = TR::sloadi;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::s2m, maskType);
+         break;
+      case 4:
+         loadOpcode = TR::iloadi;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::i2m, maskType);
+         break;
+      case 8:
+         loadOpcode = TR::lloadi;
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::l2m, maskType);
+         break;
+      case 16:
+      case 32:
+      case 64:
+         {
+         if (vectorLength == TR::NoVectorLength) return NULL;
+         TR::DataType sourceType = TR::DataType::createVectorType(TR::Int8, vectorLength);
+         maskConversionOpCode = TR::ILOpCode::createVectorOpCode(TR::v2m, sourceType, maskType);
+         loadOpcode = TR::ILOpCode::createVectorOpCode(TR::vloadi, sourceType);
+         break;
+         }
+      default:
+         TR_ASSERT_FATAL(false, "Unsupported number of lanes when loading a mask\n");
+         return NULL;
+      }
+
+   if (opCodeType.isVector())
+      {
+      loadOpcode = TR::ILOpCode::createVectorOpCode(TR::vloadi, opCodeType);
+      }
+
+   TR::SymbolReference *vectorShadow = comp()->getSymRefTab()->findOrCreateArrayShadowSymbolRef(opCodeType, NULL);
+   TR::Node *newOperand = TR::Node::createWithSymRef(operand, loadOpcode, 1, vectorShadow);
+
    TR::Node *aladdNode = generateArrayElementAddressNode(comp(), payloadLoad, TR::Node::iconst(operand, 0), elementSize);
    newOperand->setAndIncChild(0, aladdNode);
+
+
+   if (!opCodeType.isVector())
+      {
+      TR::Node *bool2Mask = TR::Node::create(operand, maskConversionOpCode, 1);
+      bool2Mask->setAndIncChild(0, newOperand);
+
+      newOperand = bool2Mask;
+      }
 
    if (_trace)
       traceMsg(comp(), "Unboxed: node %p into new node %p for parent %p\n", operand, newOperand, parentNode);
@@ -1855,7 +1962,10 @@ TR_VectorAPIExpansion::transformIL(bool checkBoxing)
             bool rhsVectorizedOrScalarized = isVectorizedOrScalarizedNode(node->getFirstChild(), rhsElementType, rhsBitsLength,
                                                                           rhsObjectType, rhsScalarized);
 
-            TR_ASSERT_FATAL(rhsVectorizedOrScalarized, "RHS of vectorized astore should be vectorized too");
+            TR_ASSERT_FATAL_WITH_NODE(node, rhsVectorizedOrScalarized, "RHS of vectorized astore should be vectorized too; %s; node=n%dn, addr=%p; firstChild: n%dn, addr=%p",
+                                      checkBoxing ? "Checking for boxing" : "Transforming",
+                                      node->getGlobalIndex(), node,
+                                      node->getFirstChild()->getGlobalIndex(), node->getFirstChild());
             }
 
          if (!checkBoxing)

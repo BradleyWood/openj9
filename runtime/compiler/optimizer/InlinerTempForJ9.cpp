@@ -3379,7 +3379,10 @@ int32_t TR_Inliner::perform()
    // this should run after all inlining is done in order not to
    // miss any VectorAPI methods
    if (TR_VectorAPIExpansion::findVectorMethods(comp()))
+      {
+//      printf("Has vector API!!!!!!\n");
       comp()->getMethodSymbol()->setHasVectorAPI(true);
+      }
 
    return 1; // cost??
    }

@@ -1226,7 +1226,7 @@ initializeJavaVM(void * osMainThread, J9JavaVM ** vmPtr, J9CreateJavaVMParams *c
  * Disable AVX+ vector register preservation on x86 due to a large performance regression.
  * Issue: #15716
  */
-#if defined(J9HAMMER) && (JAVA_SPEC_VERSION >= 17) && 0
+#if defined(J9HAMMER) && (JAVA_SPEC_VERSION >= 17)
 {
 	OMRPORT_ACCESS_FROM_J9PORT(PORTLIB);
 	OMRProcessorDesc desc;
