@@ -9310,6 +9310,13 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
 
 
    TR::Register *hashResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, vl, unrollCount, cg);
+
+   static bool vzeroupper = feGetEnv("TR_SHC_VZEROUPPER") != NULL;
+   if (vzeroupper)
+      {
+      generateInstruction(TR::InstOpCode::VZEROUPPER, node, cg);
+      }
+
    node->setRegister(hashResult);
 
    return hashResult;

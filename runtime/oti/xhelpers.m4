@@ -424,6 +424,7 @@ ifdef({METHOD_INVOCATION},{
 	movdqa J9TR_cframe_jitFPRs+(13*16)[_rsp],xmm13
 	movdqa J9TR_cframe_jitFPRs+(14*16)[_rsp],xmm14
 	movdqa J9TR_cframe_jitFPRs+(15*16)[_rsp],xmm15
+	vzeroupper
 }) dnl METHOD_INVOCATION
 })
 
