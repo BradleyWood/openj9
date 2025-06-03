@@ -149,9 +149,6 @@ J9::X86::CPU::supportsFeature(uint32_t feature)
    {
    OMRPORT_ACCESS_FROM_OMRPORT(TR::Compiler->omrPortLib);
 
-   if (isFeatureDisabledByOption(feature))
-      return false;
-
    static bool disableCPUDetectionTest = feGetEnv("TR_DisableCPUDetectionTest");
    if (!disableCPUDetectionTest)
       {
