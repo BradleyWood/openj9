@@ -9468,7 +9468,7 @@ TR::Register* J9::X86::TreeEvaluator::inlineMathFma(TR::Node* node, TR::CodeGene
 // jl serial_loop
 //
 // end_label
-static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
+static TR::Register* inlineStringHashCode_old(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
    {
    TR_ASSERT(node->getChild(1)->getOpCodeValue() == TR::iconst && node->getChild(1)->getInt() == 0, "String hashcode offset can only be const zero.");
 
@@ -9569,6 +9569,22 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
    cg->recursivelyDecReferenceCount(node->getChild(1));
    cg->decReferenceCount(node->getChild(2));
    return hash;
+   }
+
+static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
+   {
+   static bool oldSHC = feGetEnv("TR_UseOldSHC") != NULL;
+
+   if (oldSHC)
+      {
+      return inlineStringHashCode_old(node, isCompressed, cg);
+      }
+   else
+      {
+      TR::Register *hashResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, cg);
+      node->setRegister(hashResult);
+      return hashResult;
+      }
    }
 
 TR::Register* J9::X86::TreeEvaluator::inlineVectorizedHashCode(TR::Node* node, TR::CodeGenerator* cg)
@@ -9907,6 +9923,32 @@ J9::X86::TreeEvaluator::vectorizedHashCodeHelper(TR::Node *node, TR::DataType dt
    else if (comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX2))
       vl = TR::VectorLength256;
 
+   static bool use512 = feGetEnv("TR_UseVL512") != NULL;
+   static bool use256 = feGetEnv("TR_UseVL256") != NULL;
+   static bool use128 = feGetEnv("TR_UseVL128") != NULL;
+
+   if (use512)
+      vl = TR::VectorLength512;
+   if (use256)
+      vl = TR::VectorLength256;
+   if (use128)
+      vl = TR::VectorLength128;
+
+   static bool useHotness = feGetEnv("TR_UseHotness") != NULL;
+
+   if (useHotness && cg->comp()->getMethodHotness() == scorching && comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F))
+      {
+      vl = TR::VectorLength512;
+      }
+   if (useHotness && cg->comp()->getMethodHotness() >= hot && comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX2))
+      {
+      vl = TR::VectorLength256;
+      }
+   else if (useHotness)
+      {
+      vl = TR::VectorLength128;
+      }
+
    TR::Node *addressNode = node->getChild(0);
 
    bool nonZeroOffset = node->getChild(1)->getOpCodeValue() != TR::iconst || node->getChild(1)->getInt() != 0;
@@ -9950,6 +9992,20 @@ J9::X86::TreeEvaluator::vectorizedHashCodeHelper(TR::Node *node, TR::DataType dt
 
 #ifdef TR_TARGET_64BIT
    int32_t unrollCount = unrollVar ? atoi(unrollVar) : 4;
+
+   if (useHotness && cg->comp()->getMethodHotness() == scorching)
+      {
+      unrollCount = 4;
+      }
+   if (useHotness && cg->comp()->getMethodHotness() >= hot)
+      {
+      unrollCount = 2;
+      }
+   else if (useHotness)
+      {
+      unrollCount = 1;
+      }
+
 #else
    int32_t unrollCount = 1;
 #endif
