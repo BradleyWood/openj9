@@ -1228,11 +1228,28 @@ initializeJavaVM(void * osMainThread, J9JavaVM ** vmPtr, J9CreateJavaVMParams *c
 	OMRProcessorDesc desc;
 	omrsysinfo_get_processor_description(&desc);
 
+#if JAVA_SPEC_VERSION >= 17
+	/*
+	 * Set runtime flag J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS
+	 * if AVX is supported. This flag may be used to determine if AVX-512 (ZMM, K)
+	 * registers need to be preserved / restored.
+	 *
+	 * TODO: Separate flag for ZMM / Mask registers; Assume we only want to enable AVX-512 masks, but not 512-bit vectors;
+	 */
+	if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512F)
+		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512BW)
+		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_XSAVE_AVX)
+	) {
+		vm->extendedRuntimeFlags |= J9_EXTENDED_RUNTIME_USE_EXTENDED_VECTOR_REGISTERS;
+	}
+#endif
 	/*
 	 * Set runtime flag J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS
 	 * if AVX is supported. This is used to determine if the vzeroupper
 	 * instruction is needed in JIT helper code to avoid performance
 	 * penalties when transitioning between AVX and legacy SSE code.
+	 * This flag may also be used to determine if AVX (YMM) registers
+	 * need to be preserved / restored.
 	 */
 	if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX)
 		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_XSAVE_AVX)
