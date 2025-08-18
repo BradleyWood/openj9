@@ -1240,23 +1240,23 @@ initializeJavaVM(void * osMainThread, J9JavaVM ** vmPtr, J9CreateJavaVMParams *c
 		vm->extendedRuntimeFlags |= J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS;
 	}
 
-#if JAVA_SPEC_VERSION >= 17
-	IDATA argIndex = 1;//FIND_ARG_IN_VMARGS(EXACT_MATCH, VMOPT_XSHARECLASSES, NULL);
-
-	if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX)
-		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_XSAVE_AVX)
-		&& argIndex >= 0
-	) {
-		vm->extendedRuntimeFlags3 |= J9_EXTENDED_RUNTIME3_USE_VECTOR_LENGTH_256;
-	}
-
-	if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512F)
-		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512BW)
-		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_XSAVE_AVX512)
-		&& argIndex >= 0
-	) {
-		vm->extendedRuntimeFlags3 |= J9_EXTENDED_RUNTIME3_USE_VECTOR_LENGTH_512;
-	}
+//#if JAVA_SPEC_VERSION >= 17
+//	IDATA argIndex = 1;//FIND_ARG_IN_VMARGS(EXACT_MATCH, VMOPT_XSHARECLASSES, NULL);
+//
+//	if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX)
+//		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_XSAVE_AVX)
+//		&& argIndex >= 0
+//	) {
+//		vm->extendedRuntimeFlags3 |= J9_EXTENDED_RUNTIME3_USE_VECTOR_LENGTH_256;
+//	}
+//
+//	if (omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512F)
+//		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_AVX512BW)
+//		&& omrsysinfo_processor_has_feature(&desc, OMR_FEATURE_X86_XSAVE_AVX512)
+//		&& argIndex >= 0
+//	) {
+//		vm->extendedRuntimeFlags3 |= J9_EXTENDED_RUNTIME3_USE_VECTOR_LENGTH_512;
+//	}
 #endif
 
 }
