@@ -9380,95 +9380,7 @@ TR::Register* J9::X86::TreeEvaluator::inlineMathFma(TR::Node* node, TR::CodeGene
    return result;
    }
 
-// Convert serial String.hashCode computation into vectorization copy and implement with SSE instruction
-//
-// Conversion process example:
-//
-//    str[8] = example string representing 8 characters (compressed or decompressed)
-//
-//    The serial method for creating the hash:
-//          hash = 0, offset = 0, count = 8
-//          for (int i = offset; i < offset+count; ++i) {
-//                hash = (hash << 5) - hash + str[i];
-//          }
-//
-//    Note that ((hash << 5) - hash) is equivalent to hash * 31
-//
-//    Expanding out the for loop:
-//          hash = ((((((((0*31+str[0])*31+str[1])*31+str[2])*31+str[3])*31+str[4])*31+str[5])*31+str[6])*31+str[7])
-//
-//    Simplified:
-//          hash =        (31^7)*str[0] + (31^6)*str[1] + (31^5)*str[2] + (31^4)*str[3]
-//                      + (31^3)*str[4] + (31^2)*str[5] + (31^1)*str[6] + (31^0)*str[7]
-//
-//    Rearranged:
-//          hash =        (31^7)*str[0] + (31^3)*str[4]
-//                      + (31^6)*str[1] + (31^2)*str[5]
-//                      + (31^5)*str[2] + (31^1)*str[6]
-//                      + (31^4)*str[3] + (31^0)*str[7]
-//
-//    Factor out [31^3, 31^2, 31^1, 31^0]:
-//          hash =        31^3*((31^4)*str[0] + str[4])           Vector[0]
-//                      + 31^2*((31^4)*str[1] + str[5])           Vector[1]
-//                      + 31^1*((31^4)*str[2] + str[6])           Vector[2]
-//                      + 31^0*((31^4)*str[3] + str[7])           Vector[3]
-//
-//    Keep factoring out any 31^4 if possible (this example has no such case). If the string was 12 characters long then:
-//          31^3*((31^8)*str[0] + (31^4)*str[4] + (31^0)*str[8]) would become 31^3*(31^4((31^4)*str[0] + str[4]) + (31^0)*str[8])
-//
-//    Vectorization is done by simultaneously calculating the four sums that hash is made of (each -> is a successive step):
-//          Vector[0] = str[0] -> multiply 31^4 -> add str[4] -> multiply 31^3
-//          Vector[1] = str[1] -> multiply 31^4 -> add str[5] -> multiply 31^2
-//          Vector[2] = str[2] -> multiply 31^4 -> add str[6] -> multiply 31^1
-//          Vector[3] = str[3] -> multiply 31^4 -> add str[7] -> multiply 1
-//
-//    Adding these four vectorized values together produces the required hash.
-//    If the number of characters in the string is not a multiple of 4, then the remainder of the hash is calculated serially.
-//
-// Implementation overview:
-//
-// start_label
-// if size < threshold, goto serial_label, current threshold is 4
-//    xmm0 = load 16 bytes align constant [923521, 923521, 923521, 923521]
-//    xmm1 = 0
-// SSEloop
-//    xmm2 = decompressed: load 8 byte value in lower 8 bytes.
-//           compressed: load 4 byte value in lower 4 bytes
-//    xmm1 = xmm1 * xmm0
-//    if(isCompressed)
-//          movzxbd xmm2, xmm2
-//    else
-//          movzxwd xmm2, xmm2
-//    xmm1 = xmm1 + xmm2
-//    i = i + 4;
-//    cmp i, end -3
-//    jge SSEloop
-// xmm0 = load 16 bytes align [31^3, 31^2, 31, 1]
-// xmm1 = xmm1 * xmm0      value contains [a0, a1, a2, a3]
-// xmm0 = xmm1
-// xmm0 = xmm0 >> 64 bits
-// xmm1 = xmm1 + xmm0       reduce add [a0+a2, a1+a3, .., ...]
-// xmm0 = xmm1
-// xmm0 = xmm0 >> 32 bits
-// xmm1 = xmm1 + xmm0       reduce add [a0+a2 + a1+a3, .., .., ..]
-// movd xmm1, GPR1
-//
-// serial_label
-//
-// cmp i end
-// jle end
-// serial_loop
-// GPR2 = GPR1
-// GPR1 = GPR1 << 5
-// GPR1 = GPR1 - GPR2
-// GPR2 = load c[i]
-// add GPR1, GPR2
-// dec i
-// cmp i, end
-// jl serial_loop
-//
-// end_label
-static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
+static TR::Register* inlineStringHashCode_old(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
    {
    TR_ASSERT(node->getChild(1)->getOpCodeValue() == TR::iconst && node->getChild(1)->getInt() == 0, "String hashcode offset can only be const zero.");
 
@@ -9569,6 +9481,250 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
    cg->recursivelyDecReferenceCount(node->getChild(1));
    cg->decReferenceCount(node->getChild(2));
    return hash;
+   }
+
+// Convert serial String.hashCode computation into vectorization copy and implement with SSE instruction
+//
+// Conversion process example:
+//
+//    str[8] = example string representing 8 characters (compressed or decompressed)
+//
+//    The serial method for creating the hash:
+//          hash = 0, offset = 0, count = 8
+//          for (int i = offset; i < offset+count; ++i) {
+//                hash = (hash << 5) - hash + str[i];
+//          }
+//
+//    Note that ((hash << 5) - hash) is equivalent to hash * 31
+//
+//    Expanding out the for loop:
+//          hash = ((((((((0*31+str[0])*31+str[1])*31+str[2])*31+str[3])*31+str[4])*31+str[5])*31+str[6])*31+str[7])
+//
+//    Simplified:
+//          hash =        (31^7)*str[0] + (31^6)*str[1] + (31^5)*str[2] + (31^4)*str[3]
+//                      + (31^3)*str[4] + (31^2)*str[5] + (31^1)*str[6] + (31^0)*str[7]
+//
+//    Rearranged:
+//          hash =        (31^7)*str[0] + (31^3)*str[4]
+//                      + (31^6)*str[1] + (31^2)*str[5]
+//                      + (31^5)*str[2] + (31^1)*str[6]
+//                      + (31^4)*str[3] + (31^0)*str[7]
+//
+//    Factor out [31^3, 31^2, 31^1, 31^0]:
+//          hash =        31^3*((31^4)*str[0] + str[4])           Vector[0]
+//                      + 31^2*((31^4)*str[1] + str[5])           Vector[1]
+//                      + 31^1*((31^4)*str[2] + str[6])           Vector[2]
+//                      + 31^0*((31^4)*str[3] + str[7])           Vector[3]
+//
+//    Keep factoring out any 31^4 if possible (this example has no such case). If the string was 12 characters long then:
+//          31^3*((31^8)*str[0] + (31^4)*str[4] + (31^0)*str[8]) would become 31^3*(31^4((31^4)*str[0] + str[4]) + (31^0)*str[8])
+//
+//    Vectorization is done by simultaneously calculating the four sums that hash is made of (each -> is a successive step):
+//          Vector[0] = str[0] -> multiply 31^4 -> add str[4] -> multiply 31^3
+//          Vector[1] = str[1] -> multiply 31^4 -> add str[5] -> multiply 31^2
+//          Vector[2] = str[2] -> multiply 31^4 -> add str[6] -> multiply 31^1
+//          Vector[3] = str[3] -> multiply 31^4 -> add str[7] -> multiply 1
+//
+//    Adding these four vectorized values together produces the required hash.
+//    If the number of characters in the string is not a multiple of 4, then the remainder of the hash is calculated serially.
+//
+// Implementation overview:
+//
+// start_label
+// if size < threshold, goto serial_label, current threshold is 4
+//    xmm0 = load 16 bytes align constant [923521, 923521, 923521, 923521]
+//    xmm1 = 0
+// SSEloop
+//    xmm2 = decompressed: load 8 byte value in lower 8 bytes.
+//           compressed: load 4 byte value in lower 4 bytes
+//    xmm1 = xmm1 * xmm0
+//    if(isCompressed)
+//          movzxbd xmm2, xmm2
+//    else
+//          movzxwd xmm2, xmm2
+//    xmm1 = xmm1 + xmm2
+//    i = i + 4;
+//    cmp i, end -3
+//    jge SSEloop
+// xmm0 = load 16 bytes align [31^3, 31^2, 31, 1]
+// xmm1 = xmm1 * xmm0      value contains [a0, a1, a2, a3]
+// xmm0 = xmm1
+// xmm0 = xmm0 >> 64 bits
+// xmm1 = xmm1 + xmm0       reduce add [a0+a2, a1+a3, .., ...]
+// xmm0 = xmm1
+// xmm0 = xmm0 >> 32 bits
+// xmm1 = xmm1 + xmm0       reduce add [a0+a2 + a1+a3, .., .., ..]
+// movd xmm1, GPR1
+//
+// serial_label
+//
+// cmp i end
+// jle end
+// serial_loop
+// GPR2 = GPR1
+// GPR1 = GPR1 << 5
+// GPR1 = GPR1 - GPR2
+// GPR2 = load c[i]
+// add GPR1, GPR2
+// dec i
+// cmp i, end
+// jl serial_loop
+//
+// end_label
+static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
+   {
+      {
+      // i8  - PMOVZXBDRegMem
+      // i16 - PMOVZXWDRegMem
+if (feGetEnv("TR_GG1"))
+   {
+   TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions((uint8_t)0, (uint8_t)11, cg);
+
+   printf("IMPL INLINE\n");
+   TR::Register *hasResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, cg);
+   node->setRegister(hasResult);
+
+   return hasResult;
+   }
+
+   if (feGetEnv("TR_GG3"))
+      {
+      printf("IMPL OLD\n");
+      return inlineStringHashCode_old(node, isCompressed, cg);
+      }
+
+      TR::DataType dt = isCompressed ? TR::Int8 : TR::Int16;
+      bool isSigned = false;
+      int32_t shift = dt - TR::Int8; /* i8 -> 0, i16 -> 1, i32 -> 2 */
+
+      TR::Compilation *comp = cg->comp();
+
+      TR::Register *address = cg->evaluate(node->getChild(0));
+      TR::Register *index = cg->intClobberEvaluate(node->getChild(1));
+      TR::Register *length = cg->evaluate(node->getChild(2));
+      TR::Register *adjustedAddrReg = cg->allocateRegister(TR_GPR);
+      TR::Register *initHash = cg->allocateRegister(TR_GPR);
+      TR::Register *result = cg->allocateRegister(TR_GPR);
+      TR::Register *terminationIndex = cg->allocateRegister();
+
+      TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions(0, 7, cg);
+
+      deps->addPostCondition(result, TR::RealRegister::eax, cg);
+      deps->addPostCondition(adjustedAddrReg, TR::RealRegister::edi, cg);
+      deps->addPostCondition(address, TR::RealRegister::NoReg, cg);
+      deps->addPostCondition(index, TR::RealRegister::ecx, cg);
+      deps->addPostCondition(terminationIndex, TR::RealRegister::edx, cg);
+      deps->addPostCondition(initHash, TR::RealRegister::esi, cg);
+      deps->addPostCondition(length, TR::RealRegister::NoReg, cg);
+
+
+//      ; rdi -> ptr
+//      ; esi -> init_hash
+//      ; edx -> terminationIndex
+//      ; ecx -> start_index
+//
+//      ; Return
+//      ; eax -> hash_value
+      // initial hash value of 0.
+      generateRegRegInstruction(TR::InstOpCode::XOR4RegReg, node, initHash, initHash, cg);
+      generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, result, initHash, cg);
+
+      static bool disableSecondLoop = feGetEnv("TR_disableVectorHashCodeSecondLoop") != NULL;
+
+//      if (comp->target().cpu.supportsFeature(OMR_FEATURE_X86_AVX512F) && isCompressed)
+         if (feGetEnv("TR_GG2"))
+         {
+         // todo ; call helper
+         generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, terminationIndex, length, cg);
+
+//         generateRegImmInstruction(TR::InstOpCode::AND4RegImm4, node, terminationIndex, ~(31), cg);
+
+         TR::LabelSymbol *endIfLabel = generateLabelSymbol(cg);
+
+         generateRegImmInstruction(TR::InstOpCode::CMPRegImm4(), node, length, 32, cg);
+         generateLabelInstruction(TR::InstOpCode::JL4, node, endIfLabel, cg);
+
+         generateRegRegInstruction(TR::InstOpCode::XORRegReg(), node, result, result, cg); // todo delete
+
+//         if (feGetEnv("TR_GG2"))
+            {
+            printf("IMPL NEW\n");
+            generateRegMemInstruction(TR::InstOpCode::LEARegMem(), node, adjustedAddrReg, generateX86MemoryReference(address, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg);
+            TR_RuntimeHelper helper = isCompressed ? TR_AMD64java_lang_String_hashCode_compressed_AVX256Loop : TR_AMD64java_lang_String_hashCode_AVX256Loop;
+            generateHelperCallInstruction(node, helper, deps, cg);
+
+            generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, initHash, result, cg);
+
+//            generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, result, index, cg);
+//            generateRegImmInstruction(TR::InstOpCode::MOVRegImm4(), node, result, 55, cg);
+//            generateInstruction(TR::InstOpCode::INT3, node, cg);
+            }
+
+         generateLabelInstruction(TR::InstOpCode::label, node, endIfLabel, cg);
+//         generateRegInstruction(TR::InstOpCode::INCReg(), node, result, cg);
+         }
+
+
+   // Generate a second vectorized loop;
+
+//   if (!feGetEnv("TR_GG2"))
+      {
+      if (!disableSecondLoop)
+         {
+         TR::TreeEvaluator::vectorizedHashCodeLoopHelper(node, dt, TR::VectorLength128, isSigned, result, initHash, index, length, address, 1, cg);
+         }
+
+      // handle residual elements sequentially
+      // for (; index < length; index++) { hash = 31 * hash + arr[index]; }
+      {
+         TR::LabelSymbol *residueBeginLoopLabel = generateLabelSymbol(cg);
+         TR::LabelSymbol *residueEndLoopLabel = generateLabelSymbol(cg);
+
+         residueBeginLoopLabel->setStartInternalControlFlow();
+         residueEndLoopLabel->setEndInternalControlFlow();
+
+         generateLabelInstruction(TR::InstOpCode::label, node, residueBeginLoopLabel, cg);
+         generateRegRegInstruction(TR::InstOpCode::CMP4RegReg, node, index, length, cg);
+         generateLabelInstruction(TR::InstOpCode::JGE4, node, residueEndLoopLabel, cg);
+
+         // hash = 31 * hash + arr[index] = tmp * hash + arr[index]
+         generateRegRegImmInstruction(TR::InstOpCode::IMUL4RegRegImm4, node, result, result, 31, cg);
+
+         static TR::InstOpCode::Mnemonic signedLoadOpcode[3] = {TR::InstOpCode::MOVSXReg4Mem1,
+                                                                TR::InstOpCode::MOVSXReg4Mem2,
+                                                                TR::InstOpCode::L4RegMem};
+         static TR::InstOpCode::Mnemonic unsignedLoadOpcode[3] = {TR::InstOpCode::MOVZXReg4Mem1,
+                                                                  TR::InstOpCode::MOVZXReg4Mem2,
+                                                                  TR::InstOpCode::L4RegMem};
+         TR::InstOpCode::Mnemonic loadOpcode = isSigned ? signedLoadOpcode[dt - TR::Int8] : unsignedLoadOpcode[dt -
+                                                                                                               TR::Int8];
+         TR::Register *tmp = terminationIndex;
+         generateRegMemInstruction(loadOpcode, node, tmp, generateX86MemoryReference(address, index, shift,
+                                                                                                  TR::Compiler->om.contiguousArrayHeaderSizeInBytes(),
+                                                                                                  cg), cg);
+         generateRegRegInstruction(TR::InstOpCode::ADDRegReg(), node, result, tmp, cg);
+
+         // Increase loop index by the number of processed elements
+         generateRegInstruction(TR::InstOpCode::INCReg(), node, index, cg);
+
+         // Compare index with numElements and loop back if necessary
+         generateLabelInstruction(TR::InstOpCode::JMP4, node, residueBeginLoopLabel, cg);
+         generateLabelInstruction(TR::InstOpCode::label, node, residueEndLoopLabel, deps, cg);
+      }}
+
+      cg->stopUsingRegister(initHash);
+      cg->stopUsingRegister(index);
+      cg->stopUsingRegister(terminationIndex);
+
+      cg->decReferenceCount(node->getChild(0));
+      cg->decReferenceCount(node->getChild(1));
+      cg->decReferenceCount(node->getChild(2));
+
+      node->setRegister(result);
+
+      return result;
+      }
+      return NULL;
    }
 
 TR::Register* J9::X86::TreeEvaluator::inlineVectorizedHashCode(TR::Node* node, TR::CodeGenerator* cg)
@@ -12992,14 +13148,14 @@ J9::X86::TreeEvaluator::directCallEvaluator(TR::Node *node, TR::CodeGenerator *c
          return TR::TreeEvaluator::encodeUTF16Evaluator(node, cg);
 
       case TR::java_lang_String_hashCodeImplDecompressed:
-         if (cg->getSupportsInlineStringHashCode())
+         if (cg->getSupportsInlineStringHashCode() && !node->getBlock()->isCold())
             returnRegister = inlineStringHashCode(node, false, cg);
 
          callInlined = (returnRegister != NULL);
          break;
 
       case TR::java_lang_String_hashCodeImplCompressed:
-         if (cg->getSupportsInlineStringHashCode())
+         if (cg->getSupportsInlineStringHashCode() && !node->getBlock()->isCold())
             returnRegister = inlineStringHashCode(node, true, cg);
 
          callInlined = (returnRegister != NULL);
