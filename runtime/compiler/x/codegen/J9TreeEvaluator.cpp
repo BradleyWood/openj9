@@ -9468,8 +9468,14 @@ TR::Register* J9::X86::TreeEvaluator::inlineMathFma(TR::Node* node, TR::CodeGene
 // jl serial_loop
 //
 // end_label
-static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
+static TR::Register* inlineStringHashCode_old(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
    {
+   if (feGetEnv("TR_GG2")) {
+      TR::Register *hashResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, cg);
+      node->setRegister(hashResult);
+      return hashResult;
+   }
+
    TR_ASSERT(node->getChild(1)->getOpCodeValue() == TR::iconst && node->getChild(1)->getInt() == 0, "String hashcode offset can only be const zero.");
 
    const int size = 4;
@@ -9557,6 +9563,130 @@ static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR:
    }
 
    generateRegRegInstruction(TR::InstOpCode::MOVDReg4Reg, node, hash, hashXMM, cg);
+
+   cg->stopUsingRegister(index);
+   cg->stopUsingRegister(tmp);
+   cg->stopUsingRegister(hashXMM);
+   cg->stopUsingRegister(tmpXMM);
+   cg->stopUsingRegister(multiplierXMM);
+
+   node->setRegister(hash);
+   cg->decReferenceCount(node->getChild(0));
+   cg->recursivelyDecReferenceCount(node->getChild(1));
+   cg->decReferenceCount(node->getChild(2));
+   return hash;
+   }
+
+static TR::Register* inlineStringHashCode(TR::Node* node, bool isCompressed, TR::CodeGenerator* cg)
+   {
+   if (feGetEnv("TR_GG2")) {
+      TR::Register *hashResult = TR::TreeEvaluator::vectorizedHashCodeHelper(node, isCompressed ? TR::Int8 : TR::Int16, NULL, false, cg);
+      node->setRegister(hashResult);
+      return hashResult;
+      }
+   else if (feGetEnv("TR_GG3")) {
+      return inlineStringHashCode_old(node, isCompressed, cg);
+   }
+
+   TR_ASSERT(node->getChild(1)->getOpCodeValue() == TR::iconst && node->getChild(1)->getInt() == 0, "String hashcode offset can only be const zero.");
+
+   const int size = 4;
+   auto shift = isCompressed ? 0 : 1;
+
+   auto address = cg->evaluate(node->getChild(0));
+   auto length = cg->evaluate(node->getChild(2));
+   auto index = cg->allocateRegister();
+   auto hash = cg->allocateRegister();
+   auto tmp = cg->allocateRegister();
+   auto loopLimit = cg->allocateRegister();
+   auto hashXMM = cg->allocateRegister(TR_VRF);
+   auto tmpXMM = cg->allocateRegister(TR_VRF);
+   auto multiplierXMM = cg->allocateRegister(TR_VRF);
+
+   auto begLabel = generateLabelSymbol(cg);
+   auto endLabel = generateLabelSymbol(cg);
+   auto loopLabel = generateLabelSymbol(cg);
+   auto bigLoopLabel = generateLabelSymbol(cg);
+   begLabel->setStartInternalControlFlow();
+   endLabel->setEndInternalControlFlow();
+   auto deps = generateRegisterDependencyConditions((uint8_t)6, (uint8_t)6, cg);
+   deps->addPreCondition(address, TR::RealRegister::NoReg, cg);
+   deps->addPreCondition(index, TR::RealRegister::NoReg, cg);
+   deps->addPreCondition(loopLimit, TR::RealRegister::NoReg, cg);
+   deps->addPreCondition(multiplierXMM, TR::RealRegister::NoReg, cg);
+   deps->addPreCondition(tmpXMM, TR::RealRegister::NoReg, cg);
+   deps->addPreCondition(hashXMM, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(address, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(index, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(loopLimit, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(multiplierXMM, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(tmpXMM, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(hashXMM, TR::RealRegister::NoReg, cg);
+
+   generateRegRegInstruction(TR::InstOpCode::XORRegReg(), node, index, index, cg);
+   generateRegRegInstruction(TR::InstOpCode::XORRegReg(), node, hash, hash, cg);
+   generateRegRegInstruction(TR::InstOpCode::MOV4RegReg, node, loopLimit, length, cg);
+   generateRegImmInstruction(TR::InstOpCode::AND4RegImm4, node, loopLimit, 31, cg);
+   generateLabelInstruction(TR::InstOpCode::JE4, node, bigLoopLabel, cg);
+
+   generateRegRegInstruction(TR::InstOpCode::MOV4RegReg, node, index, length, cg);
+   generateRegImmInstruction(TR::InstOpCode::AND4RegImms, node, index, size-1, cg); // mod size
+   generateRegMemInstruction(TR::InstOpCode::CMOVE4RegMem, node, index, generateX86MemoryReference(cg->findOrCreate4ByteConstant(node, size), cg), cg);
+
+
+   // Prepend zeros
+   {
+      TR::Compilation *comp = cg->comp();
+
+      static uint64_t MASKDECOMPRESSED[] = { 0x0000000000000000ULL, 0xffffffffffffffffULL };
+      static uint64_t MASKCOMPRESSED[]   = { 0xffffffff00000000ULL, 0x0000000000000000ULL };
+      generateRegMemInstruction(isCompressed ? TR::InstOpCode::MOVDRegMem : TR::InstOpCode::MOVQRegMem, node, hashXMM, generateX86MemoryReference(address, index, shift, -(size << shift) + TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg);
+      generateRegMemInstruction(TR::InstOpCode::LEARegMem(), node, tmp, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, isCompressed ? MASKCOMPRESSED : MASKDECOMPRESSED), cg), cg);
+
+      auto mr = generateX86MemoryReference(tmp, index, shift, 0, cg);
+      if (comp->target().cpu.supportsAVX())
+         {
+         generateRegMemInstruction(TR::InstOpCode::PANDRegMem, node, hashXMM, mr, cg);
+         }
+      else
+         {
+         generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, tmpXMM, mr, cg);
+         generateRegRegInstruction(TR::InstOpCode::PANDRegReg, node, hashXMM, tmpXMM, cg);
+         }
+      generateRegRegInstruction(isCompressed ? TR::InstOpCode::PMOVZXBDRegReg : TR::InstOpCode::PMOVZXWDRegReg, node, hashXMM, hashXMM, cg);
+   }
+
+   // Reduction Loop
+   {
+      static uint32_t multiplier[] = { 31*31*31*31, 31*31*31*31, 31*31*31*31, 31*31*31*31 };
+      generateLabelInstruction(TR::InstOpCode::label, node, begLabel, cg);
+      generateRegRegInstruction(TR::InstOpCode::CMP4RegReg, node, index, loopLimit, cg);
+      generateLabelInstruction(TR::InstOpCode::JGE4, node, endLabel, cg);
+      generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, multiplierXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, multiplier), cg), cg);
+      generateLabelInstruction(TR::InstOpCode::label, node, loopLabel, cg);
+      generateRegRegInstruction(TR::InstOpCode::PMULLDRegReg, node, hashXMM, multiplierXMM, cg);
+      generateRegMemInstruction(isCompressed ? TR::InstOpCode::PMOVZXBDRegMem : TR::InstOpCode::PMOVZXWDRegMem, node, tmpXMM, generateX86MemoryReference(address, index, shift, TR::Compiler->om.contiguousArrayHeaderSizeInBytes(), cg), cg);
+      generateRegImmInstruction(TR::InstOpCode::ADD4RegImms, node, index, 4, cg);
+      generateRegRegInstruction(TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
+      generateRegRegInstruction(TR::InstOpCode::CMP4RegReg, node, index, loopLimit, cg);
+      generateLabelInstruction(TR::InstOpCode::JL4, node, loopLabel, cg);
+      generateLabelInstruction(TR::InstOpCode::label, node, endLabel, deps, cg);
+   }
+
+   // Finalization
+   {
+      static uint32_t multiplier[] = { 31*31*31, 31*31, 31, 1 };
+      generateRegMemInstruction(TR::InstOpCode::PMULLDRegMem, node, hashXMM, generateX86MemoryReference(cg->findOrCreate16ByteConstant(node, multiplier), cg), cg);
+      generateRegRegImmInstruction(TR::InstOpCode::PSHUFDRegRegImm1, node, tmpXMM, hashXMM, 0x0e, cg);
+      generateRegRegInstruction(TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
+      generateRegRegImmInstruction(TR::InstOpCode::PSHUFDRegRegImm1, node, tmpXMM, hashXMM, 0x01, cg);
+      generateRegRegInstruction(TR::InstOpCode::PADDDRegReg, node, hashXMM, tmpXMM, cg);
+   }
+
+   generateRegRegInstruction(TR::InstOpCode::MOVDReg4Reg, node, hash, hashXMM, cg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, bigLoopLabel, cg);
+   TR::TreeEvaluator::vectorizedHashCodeLoopHelper(node, isCompressed ? TR::Int8 : TR::Int16, TR::VectorLength256, false, hash, hash, index, length, address, 4, cg);
 
    cg->stopUsingRegister(index);
    cg->stopUsingRegister(tmp);
@@ -9740,7 +9870,11 @@ J9::X86::TreeEvaluator::vectorizedHashCodeLoopHelper(TR::Node *node,
    begLabel->setStartInternalControlFlow();
    endLabel->setEndInternalControlFlow();
 
-   generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, result, initialHash, cg);
+   if (result != initialHash)
+      {
+      generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, result, initialHash, cg);
+      }
+
    generateLabelInstruction(TR::InstOpCode::label, node, begLabel, cg);
    generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, tmp, length, cg);
    generateRegImmInstruction(TR::InstOpCode::AND4RegImm4, node, tmp, ~(numElements - 1), cg);
@@ -9758,7 +9892,20 @@ J9::X86::TreeEvaluator::vectorizedHashCodeLoopHelper(TR::Node *node,
    int32_t multiplier31PowNData[16];
    // Fill multiplier array with 31^numElements
    std::fill_n(multiplier31PowNData, 16, powersOf31[64 - numElements]);
-   generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, multiplierVRF, generateX86MemoryReference(cg->findOrCreateConstantDataSnippet(node, multiplier31PowNData, vectorSizeElements * sizeof(int32_t)), cg), cg, vectorEncoding);
+
+   static bool broadcastOpt = feGetEnv("TR_broadcast") != NULL;
+
+   if (broadcastOpt)
+      {
+      TR::Register *broadcastReg = TR::TreeEvaluator::loadConstant(node, powersOf31[64 - numElements], TR_RematerializableInt, cg);
+      generateRegRegInstruction(TR::InstOpCode::MOVDRegReg4, node, multiplierVRF, broadcastReg, cg);
+      TR::TreeEvaluator::broadcastHelper(node, multiplierVRF, vl, TR::Int32, cg);
+      cg->stopUsingRegister(broadcastReg);
+      }
+   else
+      {
+      generateRegMemInstruction(TR::InstOpCode::MOVDQURegMem, node, multiplierVRF, generateX86MemoryReference(cg->findOrCreateConstantDataSnippet(node, multiplier31PowNData, vectorSizeElements * sizeof(int32_t)), cg), cg, vectorEncoding);
+      }
 
    for (int32_t i = 0; i < unrollCount; i++)
       {
